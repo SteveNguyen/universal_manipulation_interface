@@ -30,29 +30,34 @@ Install docker following the [official documentation](https://docs.docker.com/en
 
 Install system-level dependencies:
 ```console
-$ sudo apt install -y libosmesa6-dev libgl1-mesa-glx libglfw3 patchelf
+$ sudo apt install -y libosmesa6-dev libgl1-mesa-glx libglfw3 patchelf libimage-exiftool-perl
 ```
 
-We recommend [Miniforge](https://github.com/conda-forge/miniforge?tab=readme-ov-file#miniforge3) instead of the standard anaconda distribution for faster installation: 
+**Note**: `libimage-exiftool-perl` provides the `exiftool` binary which is required for processing video metadata.
+
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) if you haven't already:
 ```console
-$ mamba env create -f conda_environment.yaml
+$ curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-Activate environment
+Create and activate a virtual environment, then install dependencies:
 ```console
-$ conda activate umi
-(umi)$ 
+$ uv venv --python 3.9
+$ source .venv/bin/activate
+(.venv)$ uv pip install --index-strategy unsafe-best-match -e .
 ```
+
+Note: The `--index-strategy unsafe-best-match` flag is required to properly resolve PyTorch packages from both PyPI and the PyTorch index.
 
 ## Running UMI SLAM pipeline
 Download example data
 ```console
-(umi)$ wget --recursive --no-parent --no-host-directories --cut-dirs=2 --relative --reject="index.html*" https://real.stanford.edu/umi/data/example_demo_session/
+(.venv)$ wget --recursive --no-parent --no-host-directories --cut-dirs=2 --relative --reject="index.html*" https://real.stanford.edu/umi/data/example_demo_session/
 ```
 
 Run SLAM pipeline
 ```console
-(umi)$ python run_slam_pipeline.py example_demo_session
+(.venv)$ python run_slam_pipeline.py example_demo_session
 
 ...
 Found following cameras:
@@ -73,28 +78,28 @@ Despite our significant effort on robustness improvement, OBR_SLAM3 is still the
 
 Generate dataset for training.
 ```console
-(umi)$ python scripts_slam_pipeline/07_generate_replay_buffer.py -o example_demo_session/dataset.zarr.zip example_demo_session
+(.venv)$ python scripts_slam_pipeline/07_generate_replay_buffer.py -o example_demo_session/dataset.zarr.zip example_demo_session
 ```
 
 ## Training Diffusion Policy
 Single-GPU training. Tested to work on RTX3090 24GB.
 ```console
-(umi)$ python train.py --config-name=train_diffusion_unet_timm_umi_workspace task.dataset_path=example_demo_session/dataset.zarr.zip
+(.venv)$ python train.py --config-name=train_diffusion_unet_timm_umi_workspace task.dataset_path=example_demo_session/dataset.zarr.zip
 ```
 
 Multi-GPU training.
 ```console
-(umi)$ accelerate --num_processes <ngpus> train.py --config-name=train_diffusion_unet_timm_umi_workspace task.dataset_path=example_demo_session/dataset.zarr.zip
+(.venv)$ accelerate --num_processes <ngpus> train.py --config-name=train_diffusion_unet_timm_umi_workspace task.dataset_path=example_demo_session/dataset.zarr.zip
 ```
 
 Downloading in-the-wild cup arrangement dataset (processed).
 ```console
-(umi)$ wget https://real.stanford.edu/umi/data/zarr_datasets/cup_in_the_wild.zarr.zip
+(.venv)$ wget https://real.stanford.edu/umi/data/zarr_datasets/cup_in_the_wild.zarr.zip
 ```
 
 Multi-GPU training.
 ```console
-(umi)$ accelerate --num_processes <ngpus> train.py --config-name=train_diffusion_unet_timm_umi_workspace task.dataset_path=cup_in_the_wild.zarr.zip
+(.venv)$ accelerate --num_processes <ngpus> train.py --config-name=train_diffusion_unet_timm_umi_workspace task.dataset_path=cup_in_the_wild.zarr.zip
 ```
 
 ## 🦾 Real-world Deployment
@@ -137,17 +142,17 @@ Our in-the-wild cup arragement policy is trained with the distribution of ["espr
 
 Download pre-trained checkpoint.
 ```console
-(umi)$ wget https://real.stanford.edu/umi/data/pretrained_models/cup_wild_vit_l_1img.ckpt
+(.venv)$ wget https://real.stanford.edu/umi/data/pretrained_models/cup_wild_vit_l_1img.ckpt
 ```
 
 Grant permission to the HDMI capture card.
 ```console
-(umi)$ sudo chmod -R 777 /dev/bus/usb
+(.venv)$ sudo chmod -R 777 /dev/bus/usb
 ```
 
 Launch eval script.
 ```console
-(umi)$ python eval_real.py --robot_config=example/eval_robots_config.yaml -i cup_wild_vit_l.ckpt -o data/eval_cup_wild_example
+(.venv)$ python eval_real.py --robot_config=example/eval_robots_config.yaml -i cup_wild_vit_l.ckpt -o data/eval_cup_wild_example
 ```
 After the script started, use your spacemouse to control the robot and the gripper (spacemouse buttons). Press `C` to start the policy. Press `S` to stop.
 

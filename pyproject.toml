@@ -1,0 +1,93 @@
+[project]
+name = "umi"
+version = "0.1.0"
+description = "Universal Manipulation Interface"
+readme = "README.md"
+requires-python = ">=3.9,<3.10"
+license = { text = "MIT" }
+
+dependencies = [
+    # Core scientific computing
+    "numpy==1.24.*",
+    "scipy==1.11.*",
+    "numba==0.57.*",
+    "pandas==2.1.*",
+
+    # PyTorch (CUDA 12.1 version)
+    "torch==2.1.0",
+    "torchvision==0.16.0",
+
+    # Computer vision and media
+    "opencv-python==4.7.*",
+    "av>=10.0.0",  # Updated from 10.0 for compatibility with modern build tools
+
+    # Jupyter
+    "ipykernel==6.23.*",
+
+    # Visualization
+    "matplotlib==3.7.*",
+    "k3d==2.15.*",
+
+    # Configuration and utilities
+    "pyyaml==6.0.*",
+    "tqdm==4.65.*",
+
+    # Data storage
+    "zarr==2.16.*",
+    "numcodecs==0.11.*",
+    "lmdb==1.4.*",  # Conda package: python-lmdb, PyPI package: lmdb
+
+    # ML/Training framework
+    "hydra-core==1.2.0",
+    "wandb==0.15.8",
+    "dill==0.3.7",
+    "einops==0.6.1",
+    "diffusers==0.18.2",
+    "timm==0.9.7",
+    "accelerate==0.24.*",
+
+    # Scientific computing
+    "scikit-video==1.1.*",
+    "scikit-fda==0.9.*",
+
+    # Gym (updated from 0.21.0 to 0.23.1 due to build issues with modern tools)
+    "gym==0.23.1",
+
+    # Build tools
+    "cython==0.29.*",
+
+    # AWS
+    "boto3==1.33.*",
+
+    # File handling
+    "aiohttp==3.9.*",
+    "aiofiles==23.2.*",
+
+    # Additional dependencies
+    "ray[default]==2.8.0",
+    "threadpoolctl==3.2.*",
+    "v4l2py==2.2.*",
+    "ur-rtde==1.5.6",
+    "spnav @ https://github.com/cheng-chi/spnav/archive/c1c938ebe3cc542db4685e0d13850ff1abfdb943.tar.gz",
+    "atomics==1.0.2",
+    "pynput==1.7.6",
+    "fastcrc==0.2.*",
+    "imagecodecs==2023.9.18",
+    # Note: robomimic, free-mujoco-py, and robosuite are optional dependencies
+    # for simulation environments. They require system dependencies (MuJoCo, OpenGL)
+    # and may have build issues. Install separately if needed:
+    # uv pip install robomimic free-mujoco-py
+    # uv pip install robosuite@https://github.com/cheng-chi/robosuite/archive/3f2c3116f1c0a1916e94bfa28da4d055927d1ab3.tar.gz
+    "pyexiftool==0.5.*",
+]
+
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.uv]
+# Use PyPI as primary index, PyTorch as secondary for PyTorch packages
+extra-index-url = ["https://download.pytorch.org/whl/cu121"]
+
+[tool.setuptools]
+packages = ["umi", "diffusion_policy", "scripts_slam_pipeline"]

@@ -8,6 +8,51 @@ import numpy as np
 import cv2
 import scipy.interpolate as si
 
+# =================== OpenCV ArUco API Compatibility ===================
+# OpenCV 4.7+ changed the ArUco API. This wrapper provides backward compatibility.
+
+def _detect_aruco_markers_compat(image, dictionary, parameters):
+    """Compatibility wrapper for ArUco marker detection across OpenCV versions."""
+    major, minor = map(int, cv2.__version__.split('.')[:2])
+
+    if major == 4 and minor >= 7:
+        # New API (OpenCV 4.7+)
+        detector = cv2.aruco.ArucoDetector(dictionary, parameters)
+        corners, ids, rejected = detector.detectMarkers(image)
+    else:
+        # Old API (OpenCV 4.6 and earlier)
+        corners, ids, rejected = cv2.aruco.detectMarkers(image, dictionary, parameters=parameters)
+
+    return corners, ids, rejected
+
+def _estimate_pose_single_markers_compat(corners, marker_size, camera_matrix, dist_coeffs):
+    """Compatibility wrapper for ArUco pose estimation across OpenCV versions."""
+    major, minor = map(int, cv2.__version__.split('.')[:2])
+
+    if major == 4 and minor >= 7:
+        # New API (OpenCV 4.7+) - estimatePoseSingleMarkers is removed
+        # Use solvePnP directly
+        marker_points = np.array([
+            [-marker_size / 2, marker_size / 2, 0],
+            [marker_size / 2, marker_size / 2, 0],
+            [marker_size / 2, -marker_size / 2, 0],
+            [-marker_size / 2, -marker_size / 2, 0]
+        ], dtype=np.float32)
+
+        rvecs = []
+        tvecs = []
+        for corner in corners:
+            _, rvec, tvec = cv2.solvePnP(
+                marker_points, corner, camera_matrix, dist_coeffs, False, cv2.SOLVEPNP_IPPE_SQUARE
+            )
+            rvecs.append(rvec)
+            tvecs.append(tvec)
+
+        return np.array(rvecs), np.array(tvecs), None
+    else:
+        # Old API
+        return cv2.aruco.estimatePoseSingleMarkers(corners, marker_size, camera_matrix, dist_coeffs)
+
 # =================== intrinsics ===================
 
 def parse_fisheye_intrinsics(json_data: dict) -> Dict[str, np.ndarray]:
@@ -169,7 +214,7 @@ def detect_localize_aruco_tags(
     param = cv2.aruco.DetectorParameters()
     if refine_subpix:
         param.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
-    corners, ids, rejectedImgPoints = cv2.aruco.detectMarkers(
+    corners, ids, rejectedImgPoints = _detect_aruco_markers_compat(
         image=img, dictionary=aruco_dict, parameters=param)
     if len(corners) == 0:
         return dict()
@@ -179,14 +224,14 @@ def detect_localize_aruco_tags(
         this_id = int(this_id[0])
         if this_id not in marker_size_map:
             continue
-        
+
         marker_size_m = marker_size_map[this_id]
         undistorted = cv2.fisheye.undistortPoints(this_corners, K, D, P=K)
-        rvec, tvec, markerPoints = cv2.aruco.estimatePoseSingleMarkers(
+        rvec, tvec, markerPoints = _estimate_pose_single_markers_compat(
             undistorted, marker_size_m, K, np.zeros((1,5)))
         tag_dict[this_id] = {
-            'rvec': rvec.squeeze(),
-            'tvec': tvec.squeeze(),
+            'rvec': rvec.squeeze() if rvec is not None else rvec,
+            'tvec': tvec.squeeze() if tvec is not None else tvec,
             'corners': this_corners.squeeze()
         }
     return tag_dict
