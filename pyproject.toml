@@ -12,31 +12,24 @@ dependencies = [
     "scipy==1.11.*",
     "numba==0.57.*",
     "pandas==2.1.*",
-
     # PyTorch (CUDA 12.1 version)
     "torch==2.1.0",
     "torchvision==0.16.0",
-
     # Computer vision and media
     "opencv-python==4.7.*",
-    "av>=10.0.0",  # Updated from 10.0 for compatibility with modern build tools
-
+    "av>=10.0.0", # Updated from 10.0 for compatibility with modern build tools
     # Jupyter
     "ipykernel==6.23.*",
-
     # Visualization
     "matplotlib==3.7.*",
     "k3d==2.15.*",
-
     # Configuration and utilities
     "pyyaml==6.0.*",
     "tqdm==4.65.*",
-
     # Data storage
     "zarr==2.16.*",
     "numcodecs==0.11.*",
-    "lmdb==1.4.*",  # Conda package: python-lmdb, PyPI package: lmdb
-
+    "lmdb==1.4.*", # Conda package: python-lmdb, PyPI package: lmdb
     # ML/Training framework
     "hydra-core==1.2.0",
     "wandb==0.15.8",
@@ -45,24 +38,18 @@ dependencies = [
     "diffusers==0.18.2",
     "timm==0.9.7",
     "accelerate==0.24.*",
-
     # Scientific computing
     "scikit-video==1.1.*",
     "scikit-fda==0.9.*",
-
     # Gym (updated from 0.21.0 to 0.23.1 due to build issues with modern tools)
     "gym==0.23.1",
-
     # Build tools
     "cython==0.29.*",
-
     # AWS
     "boto3==1.33.*",
-
     # File handling
     "aiohttp==3.9.*",
     "aiofiles==23.2.*",
-
     # Additional dependencies
     "ray[default]==2.8.0",
     "threadpoolctl==3.2.*",
@@ -79,6 +66,7 @@ dependencies = [
     # uv pip install robomimic free-mujoco-py
     # uv pip install robosuite@https://github.com/cheng-chi/robosuite/archive/3f2c3116f1c0a1916e94bfa28da4d055927d1ab3.tar.gz
     "pyexiftool==0.5.*",
+    "py-gpmf-parser>=0.1.1",
 ]
 
 [build-system]

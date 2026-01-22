@@ -9,6 +9,23 @@ The Hero 13 requires different calibration than GoPro 10 MaxLens due to:
 - Different lens distortion profile
 - SLAM must run at 720p (960x720) not at full 4K resolution
 
+## ⚠️ CRITICAL: FPS Requirement
+
+**ALL videos (calibration and test) MUST use the SAME FPS!**
+
+| ✅ Correct | ❌ Wrong |
+|-----------|----------|
+| Calibration at 60 FPS<br>Test at 60 FPS | Calibration at 60 FPS<br>Test at 50 FPS |
+| Calibration at 50 FPS<br>Test at 50 FPS | Calibration at 50 FPS<br>Test at 60 FPS |
+
+**Why:** IMU timestamps are synchronized with video frame timing. FPS mismatch causes 20% timing error, breaking visual-inertial fusion.
+
+**Common mistake:** Recording calibration at 60 FPS (NTSC), then switching to 50 FPS (PAL) to avoid flickering.
+
+**Solution:** Choose 60 or 50 FPS at calibration and **never change it**.
+
+📖 **See:** [`HERO13_FPS_REQUIREMENTS.md`](HERO13_FPS_REQUIREMENTS.md) for detailed explanation.
+
 ## Calibration Files
 
 **Final working calibration:** `hero13_720p_intrinsics.json`
