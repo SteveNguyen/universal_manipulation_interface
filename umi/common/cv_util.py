@@ -395,12 +395,93 @@ def draw_predefined_mask(img, color=(0,0,0), mirror=True, gripper=True, finger=T
         all_coords.extend(get_gripper_canonical_polygon())
     if finger:
         all_coords.extend(get_finger_canonical_polygon())
-        
+
     for coords in all_coords:
         pts = canonical_to_pixel_coords(coords, img.shape[:2])
         pts = np.round(pts).astype(np.int32)
         flag = cv2.LINE_AA if use_aa else cv2.LINE_8
         cv2.fillPoly(img,[pts], color=color, lineType=flag)
+    return img
+
+
+# =========== Hero 13 mask ====================
+# Hero 13 has different mirror positions and finger/gripper geometry
+
+def get_mirror_polygon_hero13():
+    """
+    Get Hero 13 mirror polygons (left and right).
+    Returns pixel coordinates at 2704x2028 resolution.
+    """
+    # Left mirror polygon (pixel coords at 2704x2028)
+    left_mirror_pts = np.array([
+        [0, 1150],
+        [230, 1100],
+        [300, 1200],
+        [390, 1600],
+        [0, 2028],
+    ], dtype=np.int32)
+
+    # Right mirror is horizontally mirrored
+    right_mirror_pts = left_mirror_pts.copy()
+    right_mirror_pts[:, 0] = 2704 - right_mirror_pts[:, 0]
+
+    return [left_mirror_pts, right_mirror_pts]
+
+
+def get_finger_polygon_hero13():
+    """
+    Get Hero 13 finger/gripper polygon.
+    Covers both fingers and gripper body at the bottom.
+    Returns pixel coordinates at 2704x2028 resolution.
+    """
+    finger_pts = np.array([
+        [0, 2028],
+        [390, 1600],
+        [390, 1700],
+        [910, 1320],
+        [2704-910, 1320],
+        [2704-390, 1700],
+        [2704-390, 1600],
+        [2704, 2028],
+    ], dtype=np.int32)
+
+    return [finger_pts]
+
+
+def draw_predefined_mask_hero13(img, color=(0,0,0), mirror=True, finger=True, use_aa=False):
+    """
+    Draw predefined mask for Hero 13 camera.
+
+    Args:
+        img: Image to draw mask on (should be 2704x2028 or will be scaled)
+        color: Color to fill masked regions
+        mirror: Whether to mask mirror regions
+        finger: Whether to mask finger/gripper region
+        use_aa: Whether to use anti-aliasing
+    """
+    img_h, img_w = img.shape[:2]
+    reference_h, reference_w = 2028, 2704
+
+    # Scale factor if image is different resolution
+    scale_x = img_w / reference_w
+    scale_y = img_h / reference_h
+
+    all_polygons = []
+    if mirror:
+        all_polygons.extend(get_mirror_polygon_hero13())
+    if finger:
+        all_polygons.extend(get_finger_polygon_hero13())
+
+    flag = cv2.LINE_AA if use_aa else cv2.LINE_8
+
+    for pts in all_polygons:
+        # Scale coordinates if needed
+        scaled_pts = pts.copy().astype(np.float64)
+        scaled_pts[:, 0] *= scale_x
+        scaled_pts[:, 1] *= scale_y
+        scaled_pts = np.round(scaled_pts).astype(np.int32)
+        cv2.fillPoly(img, [scaled_pts], color=color, lineType=flag)
+
     return img
 
 def get_gripper_with_finger_mask(img, height=0.37, top_width=0.25, bottom_width=1.4, color=(0,0,0)):

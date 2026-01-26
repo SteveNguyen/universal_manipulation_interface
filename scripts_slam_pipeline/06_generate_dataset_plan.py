@@ -14,6 +14,8 @@ os.chdir(ROOT_DIR)
 import pathlib
 import click
 import pickle
+import datetime
+import re
 import numpy as np
 import json
 import math
@@ -87,8 +89,10 @@ def get_x_projection(tx_tag_this, tx_tag_other):
 @click.option('-nz', '--nominal_z', type=float, default=0.072, help="nominal Z value for gripper finger tag")
 @click.option('-ml', '--min_episode_length', type=int, default=24)
 @click.option('--ignore_cameras', type=str, default=None, help="comma separated string of camera serials to ignore")
+@click.option('-ct', '--camera_type', type=click.Choice(['gopro9', 'hero13']),
+              default='gopro9', help='Camera type (gopro9 for Hero 9/10/11, hero13 for Hero 13)')
 def main(input, output, tcp_offset, tx_slam_tag,
-         nominal_z, min_episode_length, ignore_cameras):
+         nominal_z, min_episode_length, ignore_cameras, camera_type):
     # %% stage 0
     # gather inputs
     input_path = pathlib.Path(os.path.expanduser(input)).absolute()
@@ -101,7 +105,11 @@ def main(input, output, tcp_offset, tx_slam_tag,
     # y axis in camera frame
     cam_to_center_height = 0.086 # constant for UMI
     # optical center to mounting screw, positive is when optical center is in front of the mount
-    cam_to_mount_offset = 0.01465 # constant for GoPro Hero 9,10,11
+    CAM_TO_MOUNT_OFFSETS = {
+        'gopro9': 0.01465,  # GoPro Hero 9/10/11
+        'hero13': 0.01465,  # Hero 13 (same mount design - measure if needed)
+    }
+    cam_to_mount_offset = CAM_TO_MOUNT_OFFSETS.get(camera_type, 0.01465)
     cam_to_tip_offset = cam_to_mount_offset + tcp_offset
 
     pose_cam_tcp = np.array([0, cam_to_center_height, cam_to_tip_offset, 0,0,0])
@@ -124,9 +132,29 @@ def main(input, output, tcp_offset, tx_slam_tag,
 
     with ExifToolHelper() as et:
         for gripper_cal_path in demos_dir.glob("gripper*/gripper_range.json"):
-            mp4_path = gripper_cal_path.parent.joinpath('raw_video.mp4')
+            video_dir = gripper_cal_path.parent
+            mp4_path = video_dir.joinpath('raw_video.mp4')
             meta = list(et.get_metadata(str(mp4_path)))[0]
-            cam_serial = meta['QuickTime:CameraSerialNumber']
+
+            # Try to get serial from downscaled file, then 4K original, then folder name
+            cam_serial = meta.get('QuickTime:CameraSerialNumber')
+            if cam_serial is None:
+                # Try 4K original file
+                mp4_4k_path = video_dir.joinpath('raw_video_4k.mp4')
+                if mp4_4k_path.is_file():
+                    meta_4k = list(et.get_metadata(str(mp4_4k_path)))[0]
+                    cam_serial = meta_4k.get('QuickTime:CameraSerialNumber')
+            if cam_serial is None:
+                # Extract from folder name (e.g., gripper_calibration_C3531350513764_2026.01.26_...)
+                parts = video_dir.name.split('_')
+                # For gripper_calibration_SERIAL_..., serial is at index 2
+                if len(parts) >= 3 and parts[0] == 'gripper':
+                    cam_serial = parts[2]
+                elif len(parts) >= 2:
+                    cam_serial = parts[1]
+                else:
+                    cam_serial = 'unknown'
+                print(f"Warning: No camera serial in metadata for {video_dir.name}, using {cam_serial}")
 
             gripper_range_data = json.load(gripper_cal_path.open('r'))
             gripper_id = gripper_range_data['gripper_id']
@@ -157,11 +185,53 @@ def main(input, output, tcp_offset, tx_slam_tag,
     fps = None
     rows = list()
     with ExifToolHelper() as et:
-        for video_dir in video_dirs:            
+        for video_dir in video_dirs:
             mp4_path = video_dir.joinpath('raw_video.mp4')
             meta = list(et.get_metadata(str(mp4_path)))[0]
-            cam_serial = meta['QuickTime:CameraSerialNumber']
-            start_date = mp4_get_start_datetime(str(mp4_path))
+
+            # Try to get serial from downscaled file, then 4K original, then folder name
+            cam_serial = meta.get('QuickTime:CameraSerialNumber')
+            if cam_serial is None:
+                # Try 4K original file
+                mp4_4k_path = video_dir.joinpath('raw_video_4k.mp4')
+                if mp4_4k_path.is_file():
+                    meta_4k = list(et.get_metadata(str(mp4_4k_path)))[0]
+                    cam_serial = meta_4k.get('QuickTime:CameraSerialNumber')
+            if cam_serial is None:
+                # Extract from folder name (e.g., demo_C3531350513764_2026.01.26_...)
+                parts = video_dir.name.split('_')
+                if len(parts) >= 2:
+                    cam_serial = parts[1]
+                else:
+                    cam_serial = 'unknown'
+                print(f"Warning: No camera serial in metadata for {video_dir.name}, using {cam_serial}")
+
+            # Try to get start datetime from video metadata
+            # First try downscaled file, then 4K original, then parse from folder name
+            start_date = None
+            try:
+                start_date = mp4_get_start_datetime(str(mp4_path))
+            except KeyError:
+                # Try 4K original
+                mp4_4k_path = video_dir.joinpath('raw_video_4k.mp4')
+                if mp4_4k_path.is_file():
+                    try:
+                        start_date = mp4_get_start_datetime(str(mp4_4k_path))
+                    except KeyError:
+                        pass
+            if start_date is None:
+                # Parse from folder name (e.g., demo_C3531350513764_2026.01.26_11.40.03.311350)
+                match = re.search(r'(\d{4})\.(\d{2})\.(\d{2})_(\d{2})\.(\d{2})\.(\d{2})\.(\d+)', video_dir.name)
+                if match:
+                    year, month, day, hour, minute, sec, usec = match.groups()
+                    start_date = datetime.datetime(
+                        int(year), int(month), int(day),
+                        int(hour), int(minute), int(sec), int(usec[:6].ljust(6, '0'))
+                    )
+                    print(f"Warning: Using folder name timestamp for {video_dir.name}")
+                else:
+                    print(f"Error: Cannot determine start time for {video_dir.name}")
+                    continue
             start_timestamp = start_date.timestamp()
 
             if cam_serial in ignore_cam_serials:

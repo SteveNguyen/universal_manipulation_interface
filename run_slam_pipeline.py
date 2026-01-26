@@ -19,7 +19,9 @@ import subprocess
 @click.command()
 @click.argument('session_dir', nargs=-1)
 @click.option('-c', '--calibration_dir', type=str, default=None)
-def main(session_dir, calibration_dir):
+@click.option('-ct', '--camera_type', type=click.Choice(['gopro9', 'hero13']),
+              default='gopro9', help='Camera type (gopro9 for Hero 9/10/11, hero13 for Hero 13)')
+def main(session_dir, calibration_dir, camera_type):
     script_dir = pathlib.Path(__file__).parent.joinpath('scripts_slam_pipeline')
     if calibration_dir is None:
         calibration_dir = pathlib.Path(__file__).parent.joinpath('example', 'calibration')
@@ -51,39 +53,56 @@ def main(session_dir, calibration_dir):
         assert result.returncode == 0
 
         print("############# 02_create_map ###########")
-        script_path = script_dir.joinpath("02_create_map.py")
-        assert script_path.is_file()
         demo_dir = session.joinpath('demos')
         mapping_dir = demo_dir.joinpath('mapping')
         assert mapping_dir.is_dir()
         map_path = mapping_dir.joinpath('map_atlas.osa')
+
+        if camera_type == 'hero13':
+            script_path = script_dir.joinpath("02_create_map_hero13.py")
+            slam_settings = pathlib.Path(__file__).parent.joinpath('hero13_720p_slam_settings_gopro9_tbc.yaml')
+        else:
+            script_path = script_dir.joinpath("02_create_map.py")
+            slam_settings = None
+        assert script_path.is_file()
+
         if not map_path.is_file():
             cmd = [
                 'python', str(script_path),
                 '--input_dir', str(mapping_dir),
                 '--map_path', str(map_path)
             ]
+            if slam_settings is not None:
+                cmd.extend(['--settings_file', str(slam_settings)])
             result = subprocess.run(cmd)
             assert result.returncode == 0
             assert map_path.is_file()
 
         print("############# 03_batch_slam ###########")
-        script_path = script_dir.joinpath("03_batch_slam.py")
+        if camera_type == 'hero13':
+            script_path = script_dir.joinpath("03_batch_slam_hero13.py")
+        else:
+            script_path = script_dir.joinpath("03_batch_slam.py")
         assert script_path.is_file()
         cmd = [
             'python', str(script_path),
             '--input_dir', str(demo_dir),
             '--map_path', str(map_path)
         ]
+        if slam_settings is not None:
+            cmd.extend(['--settings_file', str(slam_settings)])
         result = subprocess.run(cmd)
         assert result.returncode == 0
 
         print("############# 04_detect_aruco ###########")
         script_path = script_dir.joinpath("04_detect_aruco.py")
         assert script_path.is_file()
-        camera_intrinsics = calibration_dir.joinpath('gopro_intrinsics_2_7k.json')
+        if camera_type == 'hero13':
+            camera_intrinsics = calibration_dir.joinpath('hero13_proper_intrinsics_2.7k.json')
+        else:
+            camera_intrinsics = calibration_dir.joinpath('gopro_intrinsics_2_7k.json')
         aruco_config = calibration_dir.joinpath('aruco_config.yaml')
-        assert camera_intrinsics.is_file()
+        assert camera_intrinsics.is_file(), f"Camera intrinsics not found: {camera_intrinsics}"
         assert aruco_config.is_file()
 
         cmd = [
@@ -110,7 +129,8 @@ def main(session_dir, calibration_dir):
         assert script_path.is_file()
         cmd = [
             'python', str(script_path),
-            '--input', str(session)
+            '--input', str(session),
+            '--camera_type', camera_type
         ]
         result = subprocess.run(cmd)
         assert result.returncode == 0
