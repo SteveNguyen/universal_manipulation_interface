@@ -430,33 +430,53 @@ def get_mirror_polygon_hero13():
 
 def get_finger_polygon_hero13():
     """
-    Get Hero 13 finger/gripper polygon.
-    Covers both fingers and gripper body at the bottom.
+    Get Hero 13 finger polygon (fingers only, not gripper body).
     Returns pixel coordinates at 2704x2028 resolution.
     """
     finger_pts = np.array([
-        [0, 2028],
-        [390, 1600],
         [390, 1700],
         [910, 1320],
         [2704-910, 1320],
         [2704-390, 1700],
-        [2704-390, 1600],
-        [2704, 2028],
+        [2704-400, 1750],
+        [2704//2, 1920],
+        [400, 1750],
     ], dtype=np.int32)
 
     return [finger_pts]
 
 
-def draw_predefined_mask_hero13(img, color=(0,0,0), mirror=True, finger=True, use_aa=False):
+def get_gripper_body_polygon_hero13():
+    """
+    Get Hero 13 gripper body polygon (mechanism only, not mirrors or fingers).
+    This is used for training data masking - we want to hide the gripper
+    mechanism but keep mirrors (useful viewpoints) and fingers (show state) visible.
+    Returns pixel coordinates at 2704x2028 resolution.
+    """
+    # Contour that follows the gripper body, leaving mirrors and fingers visible
+    gripper_body_pts = np.array([
+        [0, 2028],        # bottom-left
+        [350, 1600],
+        [400, 1750],
+        [2704//2, 1920],  # center
+        [2704-400, 1750],
+        [2704-350, 1600],
+        [2704, 2028],     # bottom-right
+    ], dtype=np.int32)
+
+    return [gripper_body_pts]
+
+
+def draw_predefined_mask_hero13(img, color=(0,0,0), mirror=True, gripper=False, finger=True, use_aa=False):
     """
     Draw predefined mask for Hero 13 camera.
 
     Args:
         img: Image to draw mask on (should be 2704x2028 or will be scaled)
         color: Color to fill masked regions
-        mirror: Whether to mask mirror regions
-        finger: Whether to mask finger/gripper region
+        mirror: Whether to mask mirror regions (default True for SLAM, False for training)
+        gripper: Whether to mask gripper body/mechanism (default False for SLAM, True for training)
+        finger: Whether to mask finger region (default True for SLAM, False for training)
         use_aa: Whether to use anti-aliasing
     """
     img_h, img_w = img.shape[:2]
@@ -469,6 +489,8 @@ def draw_predefined_mask_hero13(img, color=(0,0,0), mirror=True, finger=True, us
     all_polygons = []
     if mirror:
         all_polygons.extend(get_mirror_polygon_hero13())
+    if gripper:
+        all_polygons.extend(get_gripper_body_polygon_hero13())
     if finger:
         all_polygons.extend(get_finger_polygon_hero13())
 
@@ -539,27 +561,50 @@ def inpaint_tag(img, corners, tag_scale=1.4, n_samples=16):
     return img
 
 # =========== other utils ====================
-def get_image_transform(in_res, out_res, crop_ratio:float = 1.0, bgr_to_rgb: bool=False):
+def get_image_transform(in_res, out_res, crop_ratio:float = 1.0, bgr_to_rgb: bool=False, no_crop: bool=False):
+    """
+    Create an image transform function.
+
+    Args:
+        in_res: Input resolution (width, height)
+        out_res: Output resolution (width, height)
+        crop_ratio: Crop ratio for center crop (default 1.0)
+        bgr_to_rgb: Convert BGR to RGB
+        no_crop: If True, skip cropping and just resize (useful for Hero 13 which has
+                 no fisheye black borders, so all pixels are valuable)
+    """
     iw, ih = in_res
     ow, oh = out_res
-    ch = round(ih * crop_ratio)
-    cw = round(ih * crop_ratio / oh * ow)
     interp_method = cv2.INTER_AREA
 
-    w_slice_start = (iw - cw) // 2
-    w_slice = slice(w_slice_start, w_slice_start + cw)
-    h_slice_start = (ih - ch) // 2
-    h_slice = slice(h_slice_start, h_slice_start + ch)
     c_slice = slice(None)
     if bgr_to_rgb:
         c_slice = slice(None, None, -1)
 
-    def transform(img: np.ndarray):
-        assert img.shape == ((ih,iw,3))
-        # crop
-        img = img[h_slice, w_slice, c_slice]
-        # resize
-        img = cv2.resize(img, out_res, interpolation=interp_method)
-        return img
-    
+    if no_crop:
+        # Hero 13: Just resize, no cropping (preserves full field of view including mirrors)
+        def transform(img: np.ndarray):
+            assert img.shape == ((ih, iw, 3))
+            if bgr_to_rgb:
+                img = img[:, :, c_slice]
+            img = cv2.resize(img, out_res, interpolation=interp_method)
+            return img
+    else:
+        # GoPro 9/10/11: Center crop then resize (removes fisheye black borders)
+        ch = round(ih * crop_ratio)
+        cw = round(ih * crop_ratio / oh * ow)
+
+        w_slice_start = (iw - cw) // 2
+        w_slice = slice(w_slice_start, w_slice_start + cw)
+        h_slice_start = (ih - ch) // 2
+        h_slice = slice(h_slice_start, h_slice_start + ch)
+
+        def transform(img: np.ndarray):
+            assert img.shape == ((ih, iw, 3))
+            # crop
+            img = img[h_slice, w_slice, c_slice]
+            # resize
+            img = cv2.resize(img, out_res, interpolation=interp_method)
+            return img
+
     return transform

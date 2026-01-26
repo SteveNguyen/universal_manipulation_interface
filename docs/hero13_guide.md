@@ -79,6 +79,41 @@ If SLAM tracking fails frequently:
 2. **Verify mapping video**: The ArUco tag should be clearly visible throughout
 3. **Review IMU data**: Ensure GoPro's gyro/accelerometer are working correctly
 
+## Generating Training Dataset
+
+After the SLAM pipeline completes, generate the training dataset (replay buffer):
+
+```bash
+uv run python scripts_slam_pipeline/07_generate_replay_buffer.py \
+    -o /path/to/session_directory/dataset.zarr.zip \
+    --camera_type hero13 \
+    /path/to/session_directory
+```
+
+**Important**: The `--camera_type hero13` flag is required. It enables two Hero 13-specific behaviors:
+
+1. **No cropping**: Unlike GoPro 9 (which has circular fisheye with black borders), Hero 13 produces full rectangular images. The entire image is resized to 224x224, preserving the mirrors.
+
+2. **Correct mask geometry**: Uses a smaller gripper-body-only mask that doesn't cover the mirrors.
+
+### What the mask does
+
+During dataset generation, a mask blacks out the gripper mechanism to prevent the model from overfitting to hardware appearance. For Hero 13:
+- **Masked**: Gripper body/mechanism at the bottom center only
+- **NOT masked**: Mirrors (they provide useful workspace views)
+- **NOT masked**: Gripper fingers (they show gripper state)
+
+### Tuning the mask (optional)
+
+If you need to adjust the Hero 13 mask for your specific setup:
+
+```bash
+uv run python scripts/hero13_mask_tuner.py \
+    --video /path/to/session_directory/demos/demo_*/raw_video.mp4
+```
+
+Edit `GRIPPER_BODY_PTS` in the script and re-run until the mask looks correct.
+
 ## Data Visualization
 
 After running the pipeline, visualize the processed data:
@@ -193,8 +228,9 @@ session_directory/
 | Pipeline script | `run_slam_pipeline.py` | `run_slam_pipeline_hero13.py` |
 | SLAM settings | Built into Docker | `hero13_720p_slam_settings_gopro9_tbc.yaml` |
 | Intrinsics | `gopro_intrinsics_2_7k.json` | `hero13_proper_intrinsics_2.7k.json` |
-| Resolution | Same (2.7K for ArUco, 720p for SLAM) | Same |
-| Mask dimensions | 2028x2704 | 2028x2704 (same) |
+| Image type | Circular fisheye (black borders) | Full rectangular (no black borders) |
+| Dataset generation | Center crop + resize | Resize only (preserves mirrors) |
+| Training mask | Large gripper mask (covers corners) | Small gripper body mask (preserves mirrors/fingers) |
 
 ## Known Limitations
 

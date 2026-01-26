@@ -22,8 +22,9 @@ from collections import defaultdict
 from umi.common.cv_util import (
     parse_fisheye_intrinsics,
     FisheyeRectConverter,
-    get_image_transform, 
+    get_image_transform,
     draw_predefined_mask,
+    draw_predefined_mask_hero13,
     inpaint_tag,
     get_mirror_crop_slices
 )
@@ -42,8 +43,10 @@ register_codecs()
 @click.option('-nm', '--no_mirror', is_flag=True, default=False, help="Disable mirror observation by masking them out")
 @click.option('-ms', '--mirror_swap', is_flag=True, default=False)
 @click.option('-n', '--num_workers', type=int, default=None)
-def main(input, output, out_res, out_fov, compression_level, 
-         no_mirror, mirror_swap, num_workers):
+@click.option('-ct', '--camera_type', type=click.Choice(['gopro9', 'hero13']), default='gopro9',
+              help="Camera type for mask geometry (gopro9 or hero13)")
+def main(input, output, out_res, out_fov, compression_level,
+         no_mirror, mirror_swap, num_workers, camera_type):
     if os.path.isfile(output):
         if click.confirm(f'Output file {output} exists! Overwrite?', abort=True):
             pass
@@ -169,9 +172,12 @@ def main(input, output, out_res, out_fov, compression_level,
     def video_to_zarr(replay_buffer, mp4_path, tasks):
         pkl_path = os.path.join(os.path.dirname(mp4_path), 'tag_detection.pkl')
         tag_detection_results = pickle.load(open(pkl_path, 'rb'))
+        # Hero 13: no crop (preserves mirrors), just resize
+        # GoPro 9/10/11: center crop (removes fisheye black borders)
         resize_tf = get_image_transform(
             in_res=(iw, ih),
-            out_res=out_res
+            out_res=out_res,
+            no_crop=(camera_type == 'hero13')
         )
         tasks = sorted(tasks, key=lambda x: x['frame_start'])
         camera_idx = None
@@ -189,8 +195,12 @@ def main(input, output, out_res, out_fov, compression_level,
         if mirror_swap:
             ow, oh = out_res
             mirror_mask = np.ones((oh,ow,3),dtype=np.uint8)
-            mirror_mask = draw_predefined_mask(
-                mirror_mask, color=(0,0,0), mirror=True, gripper=False, finger=False)
+            if camera_type == 'hero13':
+                mirror_mask = draw_predefined_mask_hero13(
+                    mirror_mask, color=(0,0,0), mirror=True, gripper=False, finger=False)
+            else:
+                mirror_mask = draw_predefined_mask(
+                    mirror_mask, color=(0,0,0), mirror=True, gripper=False, finger=False)
             is_mirror = (mirror_mask[...,0] == 0)
         
         with av.open(mp4_path) as container:
@@ -219,9 +229,13 @@ def main(input, output, out_res, out_fov, compression_level,
                     for corners in all_corners:
                         img = inpaint_tag(img, corners)
                         
-                    # mask out gripper
-                    img = draw_predefined_mask(img, color=(0,0,0), 
-                        mirror=no_mirror, gripper=True, finger=False)
+                    # mask out gripper body (not mirrors or fingers)
+                    if camera_type == 'hero13':
+                        img = draw_predefined_mask_hero13(img, color=(0,0,0),
+                            mirror=no_mirror, gripper=True, finger=False)
+                    else:
+                        img = draw_predefined_mask(img, color=(0,0,0),
+                            mirror=no_mirror, gripper=True, finger=False)
                     # resize
                     if fisheye_converter is None:
                         img = resize_tf(img)
