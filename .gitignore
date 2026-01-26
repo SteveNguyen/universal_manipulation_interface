@@ -5,6 +5,7 @@ data_local
 data_workspace
 outputs
 wandb
+backup_hero13_dev/
 **/.DS_Store
 *.lprof
 

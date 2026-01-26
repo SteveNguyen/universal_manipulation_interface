@@ -50,6 +50,9 @@ $ source .venv/bin/activate
 Note: The `--index-strategy unsafe-best-match` flag is required to properly resolve PyTorch packages from both PyPI and the PyTorch index.
 
 ## Running UMI SLAM pipeline
+
+> **GoPro Hero 13 Users**: See [docs/hero13_guide.md](docs/hero13_guide.md) for Hero 13-specific instructions, calibration files, and the dedicated pipeline script.
+
 Download example data
 ```console
 (.venv)$ wget --recursive --no-parent --no-host-directories --cut-dirs=2 --relative --reject="index.html*" https://real.stanford.edu/umi/data/example_demo_session/
