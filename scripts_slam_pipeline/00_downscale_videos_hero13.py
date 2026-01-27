@@ -101,6 +101,9 @@ def main(session_dir, width, height, force, delete_originals):
 
             # Downscale with ffmpeg
             # Note: We copy the data streams but they may not be perfectly synced after re-encoding
+            # Note: We don't copy data streams (GPMF/timecode) because:
+            # 1. The timecode stream (tmcd) has "codec none" which FFmpeg can't write to MP4
+            # 2. IMU extraction uses the original *_4k_original files anyway
             ffmpeg_cmd = [
                 'ffmpeg', '-y', '-hide_banner', '-loglevel', 'warning',
                 '-i', str(original_backup),
@@ -111,23 +114,32 @@ def main(session_dir, width, height, force, delete_originals):
                 '-c:a', 'copy',
                 '-map', '0:v',  # Video
                 '-map', '0:a?',  # Audio (optional)
-                '-map', '0:d?',  # Data streams (GPMF) - try to copy
                 '-movflags', '+faststart',
                 str(output_path)
             ]
 
             try:
-                subprocess.run(ffmpeg_cmd, check=True, capture_output=True)
+                result = subprocess.run(ffmpeg_cmd, check=True, capture_output=True)
+
+                # Check if output file is valid (non-zero size)
+                if output_path.stat().st_size == 0:
+                    raise RuntimeError(f"FFmpeg produced 0-byte file. Stderr: {result.stderr.decode()[:500] if result.stderr else 'none'}")
+
                 processed += 1
 
                 if delete_originals:
                     original_backup.unlink()
                     tqdm.write(f"    Deleted original")
 
-            except subprocess.CalledProcessError as e:
-                tqdm.write(f"    Error: {e.stderr.decode()[:200] if e.stderr else 'Unknown error'}")
+            except (subprocess.CalledProcessError, RuntimeError) as e:
+                if hasattr(e, 'stderr') and e.stderr:
+                    tqdm.write(f"    Error: {e.stderr.decode()[:300]}")
+                else:
+                    tqdm.write(f"    Error: {e}")
                 # Restore original if downscaling failed
-                if original_backup.exists() and not output_path.exists():
+                if original_backup.exists():
+                    if output_path.exists():
+                        output_path.unlink()  # Remove failed output
                     shutil.move(str(original_backup), str(mp4_path))
 
         print(f"\n{'='*60}")
