@@ -35,7 +35,7 @@ dependencies = [
     "wandb==0.15.8",
     "dill==0.3.7",
     "einops==0.6.1",
-    "diffusers>=0.25.0,<0.30.0",  # Updated from 0.18.2 for huggingface_hub compatibility, <0.30 for PyTorch 2.1 compat
+    "diffusers>=0.25.0,<0.30.0", # Updated from 0.18.2 for huggingface_hub compatibility, <0.30 for PyTorch 2.1 compat
     "timm==0.9.7",
     "accelerate==0.24.*",
     # Scientific computing
@@ -67,6 +67,7 @@ dependencies = [
     # uv pip install robosuite@https://github.com/cheng-chi/robosuite/archive/3f2c3116f1c0a1916e94bfa28da4d055927d1ab3.tar.gz
     "pyexiftool==0.5.*",
     "py-gpmf-parser>=0.1.1",
+    "rerun-sdk>=0.23.1",
 ]
 
 [build-system]
