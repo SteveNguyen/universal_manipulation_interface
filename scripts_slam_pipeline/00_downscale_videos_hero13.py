@@ -29,15 +29,33 @@ import subprocess
 from tqdm import tqdm
 import shutil
 
+from umi.common.camera_config import CAMERA_CONFIGS
+
 
 @click.command()
 @click.argument('session_dir', nargs=-1)
-@click.option('-w', '--width', type=int, default=2704, help='Target width')
-@click.option('-ht', '--height', type=int, default=2028, help='Target height')
+@click.option('-ct', '--camera_type', default='hero13', type=click.Choice(['hero13', 'gopro9', 'gopro10', 'gopro11']),
+              help='Camera type (determines target resolution from config)')
+@click.option('-w', '--width', type=int, default=None, help='Target width (overrides camera config)')
+@click.option('-ht', '--height', type=int, default=None, help='Target height (overrides camera config)')
 @click.option('-f', '--force', is_flag=True, default=False, help='Re-encode even if already correct resolution')
 @click.option('--delete-originals', is_flag=True, default=False, help='Delete original 4K files after downscaling')
-def main(session_dir, width, height, force, delete_originals):
-    """Downscale Hero 13 4K videos to 2.7K resolution."""
+def main(session_dir, camera_type, width, height, force, delete_originals):
+    """Downscale 4K videos to target resolution for SLAM processing.
+
+    Target resolution is determined by camera type config, but can be overridden
+    with --width and --height options.
+    """
+    # Get target resolution from camera config (or use overrides)
+    config = CAMERA_CONFIGS.get(camera_type, CAMERA_CONFIGS['hero13'])
+    target_w, target_h = config['slam_input_resolution']
+    if width is not None:
+        target_w = width
+    if height is not None:
+        target_h = height
+
+    print(f"Camera type: {camera_type}")
+    print(f"Target resolution: {target_w}x{target_h}")
 
     for session in session_dir:
         session = pathlib.Path(os.path.expanduser(session)).absolute()
@@ -75,7 +93,7 @@ def main(session_dir, width, height, force, delete_originals):
                 continue
 
             # Check if already correct resolution
-            if current_w == width and current_h == height:
+            if current_w == target_w and current_h == target_h:
                 if not force:
                     skipped += 1
                     continue
@@ -86,7 +104,7 @@ def main(session_dir, width, height, force, delete_originals):
                 skipped += 1
                 continue
 
-            tqdm.write(f"  {mp4_path.name}: {current_w}x{current_h} -> {width}x{height}")
+            tqdm.write(f"  {mp4_path.name}: {current_w}x{current_h} -> {target_w}x{target_h}")
 
             # Paths
             original_backup = mp4_path.with_stem(mp4_path.stem + '_4k_original')
@@ -107,7 +125,7 @@ def main(session_dir, width, height, force, delete_originals):
             ffmpeg_cmd = [
                 'ffmpeg', '-y', '-hide_banner', '-loglevel', 'warning',
                 '-i', str(original_backup),
-                '-vf', f'scale={width}:{height}',
+                '-vf', f'scale={target_w}:{target_h}',
                 '-c:v', 'libx264',
                 '-preset', 'medium',
                 '-crf', '18',

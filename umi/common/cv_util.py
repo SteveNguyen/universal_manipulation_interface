@@ -290,11 +290,38 @@ def get_gripper_width(tag_dict, left_id, right_id, nominal_z=0.072, z_tolerance=
 
 
 # =========== image mask ====================
-def canonical_to_pixel_coords(coords, img_shape=(2028, 2704)):
+# Reference resolution for GoPro 9/10/11 mask polygons (defined at 2704x2028)
+GOPRO_MASK_REFERENCE_RESOLUTION = (2028, 2704)  # (height, width)
+
+
+def canonical_to_pixel_coords(coords, img_shape):
+    """Convert canonical coordinates to pixel coordinates.
+
+    Args:
+        coords: Canonical coordinates (centered, normalized by height)
+        img_shape: Image shape as (height, width)
+
+    Returns:
+        Pixel coordinates array
+    """
+    if img_shape is None:
+        raise ValueError("img_shape must be provided")
     pts = np.asarray(coords) * img_shape[0] + np.array(img_shape[::-1]) * 0.5
     return pts
 
-def pixel_coords_to_canonical(pts, img_shape=(2028, 2704)):
+
+def pixel_coords_to_canonical(pts, img_shape):
+    """Convert pixel coordinates to canonical coordinates.
+
+    Args:
+        pts: Pixel coordinates
+        img_shape: Image shape as (height, width) - the reference resolution for these points
+
+    Returns:
+        Canonical coordinates (centered, normalized by height)
+    """
+    if img_shape is None:
+        raise ValueError("img_shape must be provided")
     coords = (np.asarray(pts) - np.array(img_shape[::-1]) * 0.5) / img_shape[0]
     return coords
 
@@ -305,6 +332,10 @@ def draw_canonical_polygon(img: np.ndarray, coords: np.ndarray, color: tuple):
     return img
 
 def get_mirror_canonical_polygon():
+    """Get mirror polygons in canonical coordinates (GoPro 9/10/11).
+
+    Points are defined at reference resolution and converted to canonical coords.
+    """
     left_pts = [
         [540, 1700],
         [680, 1450],
@@ -313,8 +344,8 @@ def get_mirror_canonical_polygon():
         [290, 1770],
         [550, 1770]
     ]
-    resolution = [2028, 2704]
-    left_coords = pixel_coords_to_canonical(left_pts, resolution)
+    # Convert from pixel coords at reference resolution to canonical coords
+    left_coords = pixel_coords_to_canonical(left_pts, GOPRO_MASK_REFERENCE_RESOLUTION)
     right_coords = left_coords.copy()
     right_coords[:,0] *= -1
     coords = np.stack([left_coords, right_coords])
@@ -322,12 +353,17 @@ def get_mirror_canonical_polygon():
 
 
 def get_mirror_crop_slices(img_shape=(1080,1920), left=True):
+    """Get slice indices for cropping mirror region.
+
+    Points are defined at reference resolution, converted to canonical coords,
+    then back to pixel coords at the target img_shape.
+    """
     left_pts = [
         [290, 1120],
         [650, 1480]
     ]
-    resolution = [2028, 2704]
-    left_coords = pixel_coords_to_canonical(left_pts, resolution)
+    # Convert from pixel coords at reference resolution to canonical coords
+    left_coords = pixel_coords_to_canonical(left_pts, GOPRO_MASK_REFERENCE_RESOLUTION)
     if not left:
         left_coords[:,0] *= -1
     left_pts = canonical_to_pixel_coords(left_coords, img_shape=img_shape)
@@ -340,6 +376,10 @@ def get_mirror_crop_slices(img_shape=(1080,1920), left=True):
 
 
 def get_gripper_canonical_polygon():
+    """Get gripper polygons in canonical coordinates (GoPro 9/10/11).
+
+    Points are defined at reference resolution and converted to canonical coords.
+    """
     left_pts = [
         [1352, 1730],
         [1100, 1700],
@@ -348,17 +388,20 @@ def get_gripper_canonical_polygon():
         [0, 2028],
         [1352, 2704]
     ]
-    resolution = [2028, 2704]
-    left_coords = pixel_coords_to_canonical(left_pts, resolution)
+    # Convert from pixel coords at reference resolution to canonical coords
+    left_coords = pixel_coords_to_canonical(left_pts, GOPRO_MASK_REFERENCE_RESOLUTION)
     right_coords = left_coords.copy()
     right_coords[:,0] *= -1
     coords = np.stack([left_coords, right_coords])
     return coords
 
 def get_finger_canonical_polygon(height=0.37, top_width=0.25, bottom_width=1.4):
-    # image size
-    resolution = [2028, 2704]
-    img_h, img_w = resolution
+    """Get finger polygon in canonical coordinates (GoPro 9/10/11).
+
+    Uses parametric definition based on image aspect ratio.
+    """
+    # Reference resolution for aspect ratio calculation
+    img_h, img_w = GOPRO_MASK_REFERENCE_RESOLUTION
 
     # calculate coordinates
     top_y = 1. - height
@@ -384,7 +427,7 @@ def get_finger_canonical_polygon(height=0.37, top_width=0.25, bottom_width=1.4):
         [top_right_x, top_y],
         [bottom_right_x, bottom_y]
     ]]
-    coords = pixel_coords_to_canonical(points, img_shape=resolution)
+    coords = pixel_coords_to_canonical(points, img_shape=GOPRO_MASK_REFERENCE_RESOLUTION)
     return coords
 
 def draw_predefined_mask(img, color=(0,0,0), mirror=True, gripper=True, finger=True, use_aa=False):
@@ -406,40 +449,53 @@ def draw_predefined_mask(img, color=(0,0,0), mirror=True, gripper=True, finger=T
 
 # =========== Hero 13 mask ====================
 # Hero 13 has different mirror positions and finger/gripper geometry
+# Reference resolution for Hero 13 mask polygons (2704x2028)
+HERO13_MASK_REFERENCE_RESOLUTION = (2028, 2704)  # (height, width)
+HERO13_MASK_REFERENCE_WIDTH = 2704
+HERO13_MASK_REFERENCE_HEIGHT = 2028
+
 
 def get_mirror_polygon_hero13():
+    """Get Hero 13 mirror polygons (left and right).
+
+    Returns pixel coordinates at reference resolution (2704x2028).
+    Caller should scale to actual video resolution.
     """
-    Get Hero 13 mirror polygons (left and right).
-    Returns pixel coordinates at 2704x2028 resolution.
-    """
-    # Left mirror polygon (pixel coords at 2704x2028)
+    ref_w = HERO13_MASK_REFERENCE_WIDTH
+    ref_h = HERO13_MASK_REFERENCE_HEIGHT
+
+    # Left mirror polygon (pixel coords at reference resolution)
     left_mirror_pts = np.array([
         [0, 1150],
         [230, 1100],
         [300, 1200],
         [390, 1600],
-        [0, 2028],
+        [0, ref_h],
     ], dtype=np.int32)
 
     # Right mirror is horizontally mirrored
     right_mirror_pts = left_mirror_pts.copy()
-    right_mirror_pts[:, 0] = 2704 - right_mirror_pts[:, 0]
+    right_mirror_pts[:, 0] = ref_w - right_mirror_pts[:, 0]
 
     return [left_mirror_pts, right_mirror_pts]
 
 
 def get_finger_polygon_hero13():
+    """Get Hero 13 finger polygon (fingers only, not gripper body).
+
+    Returns pixel coordinates at reference resolution (2704x2028).
+    Caller should scale to actual video resolution.
     """
-    Get Hero 13 finger polygon (fingers only, not gripper body).
-    Returns pixel coordinates at 2704x2028 resolution.
-    """
+    ref_w = HERO13_MASK_REFERENCE_WIDTH
+    ref_h = HERO13_MASK_REFERENCE_HEIGHT
+
     finger_pts = np.array([
         [390, 1700],
         [910, 1320],
-        [2704-910, 1320],
-        [2704-390, 1700],
-        [2704-400, 1750],
-        [2704//2, 1920],
+        [ref_w-910, 1320],
+        [ref_w-390, 1700],
+        [ref_w-400, 1750],
+        [ref_w//2, 1920],
         [400, 1750],
     ], dtype=np.int32)
 
@@ -447,32 +503,37 @@ def get_finger_polygon_hero13():
 
 
 def get_gripper_body_polygon_hero13():
-    """
-    Get Hero 13 gripper body polygon (mechanism only, not mirrors or fingers).
+    """Get Hero 13 gripper body polygon (mechanism only, not mirrors or fingers).
+
     This is used for training data masking - we want to hide the gripper
     mechanism but keep mirrors (useful viewpoints) and fingers (show state) visible.
-    Returns pixel coordinates at 2704x2028 resolution.
+    Returns pixel coordinates at reference resolution (2704x2028).
     """
+    ref_w = HERO13_MASK_REFERENCE_WIDTH
+    ref_h = HERO13_MASK_REFERENCE_HEIGHT
+
     # Contour that follows the gripper body, leaving mirrors and fingers visible
     gripper_body_pts = np.array([
-        [0, 2028],        # bottom-left
+        [0, ref_h],        # bottom-left
         [350, 1600],
         [400, 1750],
-        [2704//2, 1920],  # center
-        [2704-400, 1750],
-        [2704-350, 1600],
-        [2704, 2028],     # bottom-right
+        [ref_w//2, 1920],  # center
+        [ref_w-400, 1750],
+        [ref_w-350, 1600],
+        [ref_w, ref_h],    # bottom-right
     ], dtype=np.int32)
 
     return [gripper_body_pts]
 
 
 def draw_predefined_mask_hero13(img, color=(0,0,0), mirror=True, gripper=False, finger=True, use_aa=False):
-    """
-    Draw predefined mask for Hero 13 camera.
+    """Draw predefined mask for Hero 13 camera.
+
+    Polygons are defined at reference resolution (2704x2028) and automatically
+    scaled to match the actual image resolution.
 
     Args:
-        img: Image to draw mask on (should be 2704x2028 or will be scaled)
+        img: Image to draw mask on (any resolution - will be scaled)
         color: Color to fill masked regions
         mirror: Whether to mask mirror regions (default True for SLAM, False for training)
         gripper: Whether to mask gripper body/mechanism (default False for SLAM, True for training)
@@ -480,7 +541,7 @@ def draw_predefined_mask_hero13(img, color=(0,0,0), mirror=True, gripper=False, 
         use_aa: Whether to use anti-aliasing
     """
     img_h, img_w = img.shape[:2]
-    reference_h, reference_w = 2028, 2704
+    reference_h, reference_w = HERO13_MASK_REFERENCE_RESOLUTION
 
     # Scale factor if image is different resolution
     scale_x = img_w / reference_w

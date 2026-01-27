@@ -35,19 +35,128 @@ import numpy as np
 import cv2
 import av
 from umi.common.cv_util import draw_predefined_mask, draw_predefined_mask_hero13
+from umi.common.camera_config import CAMERA_CONFIGS
+
+
+def convert_imu_format(data):
+    """Convert py-gpmf-parser format to Docker/ORB-SLAM3 format.
+
+    py-gpmf-parser format:
+        {'ACCL': {'data': [[x,y,z], ...], 'timestamps_s': [t, ...]}, 'GYRO': {...}}
+
+    Docker/ORB-SLAM3 format:
+        {'1': {'streams': {'ACCL': {'samples': [{'value': [x,y,z], 'cts': t_ms}, ...]}, 'GYRO': {...}}}}
+    """
+    accl_samples = []
+    if 'ACCL' in data and 'data' in data['ACCL'] and 'timestamps_s' in data['ACCL']:
+        for xyz, ts in zip(data['ACCL']['data'], data['ACCL']['timestamps_s']):
+            accl_samples.append({
+                'value': xyz,
+                'cts': ts * 1000,  # seconds to milliseconds
+            })
+
+    gyro_samples = []
+    if 'GYRO' in data and 'data' in data['GYRO'] and 'timestamps_s' in data['GYRO']:
+        for xyz, ts in zip(data['GYRO']['data'], data['GYRO']['timestamps_s']):
+            gyro_samples.append({
+                'value': xyz,
+                'cts': ts * 1000,  # seconds to milliseconds
+            })
+
+    return {
+        '1': {
+            'streams': {
+                'ACCL': {'samples': accl_samples},
+                'GYRO': {'samples': gyro_samples},
+            }
+        }
+    }
+
+
+def extract_imu_python(video_path, output_path):
+    """Extract IMU data using py-gpmf-parser (Hero 13 compatible).
+
+    This is the preferred method for Hero 13 as the Docker-based extraction
+    can fail with "negative length" errors on some Hero 13 videos.
+
+    Args:
+        video_path: Path to video with GPMF metadata
+        output_path: Path to save imu_data.json
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        from py_gpmf_parser import GoProTelemetryExtractor
+    except ImportError:
+        print("  py-gpmf-parser not installed. Install with: pip install py-gpmf-parser")
+        return False
+
+    try:
+        video_path = pathlib.Path(video_path)
+        output_path = pathlib.Path(output_path)
+
+        extractor = GoProTelemetryExtractor(str(video_path))
+        extractor.open_source()
+
+        # Extract to temp file in py-gpmf-parser format
+        temp_path = output_path.with_suffix('.tmp.json')
+        extractor.extract_data_to_json(str(temp_path), sensor_types=['ACCL', 'GYRO'])
+        extractor.close()
+
+        # Convert to Docker format (expected by ORB-SLAM3)
+        with open(temp_path) as f:
+            data = json.load(f)
+
+        converted = convert_imu_format(data)
+
+        # Verify we got data
+        n_accl = len(converted['1']['streams']['ACCL']['samples'])
+        n_gyro = len(converted['1']['streams']['GYRO']['samples'])
+
+        if n_accl == 0 and n_gyro == 0:
+            print("  No IMU data extracted")
+            temp_path.unlink(missing_ok=True)
+            return False
+
+        with open(output_path, 'w') as f:
+            json.dump(converted, f)
+
+        temp_path.unlink(missing_ok=True)
+        print(f"  Extracted {n_accl} ACCL, {n_gyro} GYRO samples (Python method)")
+        return True
+
+    except Exception as e:
+        print(f"  Python IMU extraction failed: {e}")
+        return False
 
 
 def extract_imu_data(video_path, output_dir, docker_image="chicheng/openicc:latest",
-                     no_docker_pull=False):
-    """Extract IMU data from GoPro video using Docker container.
+                     no_docker_pull=False, camera_type='gopro9'):
+    """Extract IMU data from GoPro video.
+
+    For Hero 13, tries Python extraction first (py-gpmf-parser) as it handles
+    some videos that cause Docker extraction to fail with "negative length" errors.
+    Falls back to Docker extraction if Python method fails.
 
     Args:
         video_path: Path to video with GPMF metadata (original, not re-encoded)
         output_dir: Directory to save imu_data.json
         docker_image: Docker image for IMU extraction
         no_docker_pull: Skip pulling Docker image
+        camera_type: Camera type ('hero13' or 'gopro9')
     """
     video_path = pathlib.Path(video_path).absolute()
+    output_dir = pathlib.Path(output_dir)
+    imu_dest = output_dir / 'imu_data.json'
+
+    # For Hero 13, try Python extraction first (more reliable)
+    if camera_type == 'hero13':
+        print(f"  Trying Python IMU extraction (Hero 13)...")
+        if extract_imu_python(video_path, imu_dest):
+            return True
+        print("  Python extraction failed, trying Docker fallback...")
+
     source_video = video_path
     print(f"  Using video for IMU: {video_path.name}")
 
@@ -238,7 +347,8 @@ def main(video_path, camera_type, output_dir, load_map, settings_file,
         output_dir.mkdir(parents=True, exist_ok=True)
 
     # Check resolution and downscale if needed
-    expected_res = (2704, 2028) if camera_type == 'hero13' else (1920, 1080)
+    config = CAMERA_CONFIGS.get(camera_type, CAMERA_CONFIGS['gopro9'])
+    expected_res = config['slam_input_resolution']
     needs_downscale = False
 
     if camera_type == 'hero13' and width >= 3000:
@@ -282,7 +392,8 @@ def main(video_path, camera_type, output_dir, load_map, settings_file,
             imu_source = original_4k
         else:
             imu_source = video_path
-        success = extract_imu_data(imu_source, output_dir, no_docker_pull=no_docker_pull)
+        success = extract_imu_data(imu_source, output_dir, no_docker_pull=no_docker_pull,
+                                    camera_type=camera_type)
         if not success:
             print("  Make sure the video has GoPro GPMF metadata")
             if not keep_output and output_dir.name.startswith('slam_test_'):
@@ -308,12 +419,14 @@ def main(video_path, camera_type, output_dir, load_map, settings_file,
     # Create SLAM mask
     if not no_mask:
         print("Creating SLAM mask...")
+        # Get resolution from the video that will be used for SLAM
+        video_w, video_h, _, _ = get_video_info(raw_video_path)
         if camera_type == 'hero13':
-            slam_mask = np.zeros((2028, 2704), dtype=np.uint8)
+            slam_mask = np.zeros((video_h, video_w), dtype=np.uint8)
             slam_mask = draw_predefined_mask_hero13(
                 slam_mask, color=255, mirror=True, finger=True)
         else:
-            slam_mask = np.zeros((1080, 1920), dtype=np.uint8)
+            slam_mask = np.zeros((video_h, video_w), dtype=np.uint8)
             slam_mask = draw_predefined_mask(
                 slam_mask, color=255, mirror=True, gripper=False, finger=True)
         mask_path = output_dir / 'slam_mask.png'

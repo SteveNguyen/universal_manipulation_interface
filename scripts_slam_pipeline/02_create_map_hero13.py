@@ -19,6 +19,7 @@ import concurrent.futures
 from tqdm import tqdm
 import numpy as np
 import cv2
+import av
 from umi.common.cv_util import draw_predefined_mask_hero13
 
 # %%
@@ -67,7 +68,11 @@ def main(input_dir, map_path, settings_file, docker_image, no_docker_pull, no_ma
     mask_path = mount_target.joinpath('slam_mask.png')
     if not no_mask:
         mask_write_path = video_dir.joinpath('slam_mask.png')
-        slam_mask = np.zeros((2028, 2704), dtype=np.uint8)
+        # Get video resolution for mask (mask should match input video)
+        with av.open(str(video_dir.joinpath('raw_video.mp4'))) as container:
+            stream = container.streams.video[0]
+            video_h, video_w = stream.height, stream.width
+        slam_mask = np.zeros((video_h, video_w), dtype=np.uint8)
         slam_mask = draw_predefined_mask_hero13(
             slam_mask, color=255, mirror=True, finger=True)
         cv2.imwrite(str(mask_write_path.absolute()), slam_mask)

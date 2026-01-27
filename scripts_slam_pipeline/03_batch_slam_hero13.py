@@ -99,13 +99,14 @@ def main(input_dir, map_path, settings_file, docker_image, num_workers, max_lost
                 mask_path = mount_target.joinpath('slam_mask.png')
                 mask_write_path = video_dir.joinpath('slam_mask.png')
 
-                # find video duration
+                # find video duration and resolution
                 with av.open(str(video_dir.joinpath('raw_video.mp4').absolute())) as container:
                     video = container.streams.video[0]
                     duration_sec = float(video.duration * video.time_base)
+                    video_h, video_w = video.height, video.width
                 timeout = duration_sec * timeout_multiple
 
-                slam_mask = np.zeros((2028, 2704), dtype=np.uint8)
+                slam_mask = np.zeros((video_h, video_w), dtype=np.uint8)
                 slam_mask = draw_predefined_mask_hero13(
                     slam_mask, color=255, mirror=True, finger=True)
                 cv2.imwrite(str(mask_write_path.absolute()), slam_mask)
