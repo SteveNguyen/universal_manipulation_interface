@@ -41,7 +41,8 @@ from umi.common.camera_config import (
 @click.option('-nm', '--no_mask', is_flag=True, default=False, help="Whether to mask out gripper and mirrors. Set if map is created with bare GoPro no on gripper.")
 @click.option('--two_pass', is_flag=True, default=False, help="Run two-pass mapping: first pass creates map, second pass re-processes to capture initially missed frames")
 @click.option('--quality_downscale', is_flag=True, default=False, help="Pre-downscale video to SLAM input resolution using ffmpeg (recommended for 4K input)")
-def main(input_dir, map_path, camera_type, settings_file, docker_image, no_docker_pull, no_mask, two_pass, quality_downscale):
+@click.option('--slam_resolution', type=str, default=None, help="Override SLAM input resolution (e.g., '2704x2028'). Default uses camera config.")
+def main(input_dir, map_path, camera_type, settings_file, docker_image, no_docker_pull, no_mask, two_pass, quality_downscale, slam_resolution):
     video_dir = pathlib.Path(os.path.expanduser(input_dir)).absolute()
     for fn in ['raw_video.mp4', 'imu_data.json']:
         assert video_dir.joinpath(fn).is_file()
@@ -53,7 +54,17 @@ def main(input_dir, map_path, camera_type, settings_file, docker_image, no_docke
     # Quality downscale: pre-process video to configured SLAM input resolution using ffmpeg
     slam_video_path = video_dir.joinpath('raw_video.mp4')
     config = CAMERA_CONFIGS.get(camera_type, CAMERA_CONFIGS['gopro9'])
-    slam_input_res = config.get('slam_input_resolution')
+
+    # Override slam_input_resolution if provided via parameter
+    if slam_resolution:
+        try:
+            parts = slam_resolution.lower().split('x')
+            slam_input_res = (int(parts[0]), int(parts[1]))
+            print(f"Using custom SLAM resolution: {slam_input_res[0]}x{slam_input_res[1]}")
+        except:
+            raise ValueError(f"Invalid slam_resolution format: {slam_resolution}. Expected format: WIDTHxHEIGHT")
+    else:
+        slam_input_res = config.get('slam_input_resolution')
 
     if quality_downscale and slam_input_res is not None:
         target_w, target_h = slam_input_res

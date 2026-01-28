@@ -55,7 +55,8 @@ def runner(cmd, cwd, stdout_path, stderr_path, timeout, **kwargs):
 @click.option('-tm', '--timeout_multiple', type=float, default=16, help='timeout_multiple * duration = timeout')
 @click.option('-np', '--no_docker_pull', is_flag=True, default=False, help="pull docker image from docker hub")
 @click.option('--quality_downscale', is_flag=True, default=False, help="Pre-downscale videos to SLAM input resolution using ffmpeg (recommended for 4K input)")
-def main(input_dir, map_path, camera_type, settings_file, docker_image, num_workers, max_lost_frames, timeout_multiple, no_docker_pull, quality_downscale):
+@click.option('--slam_resolution', type=str, default=None, help="Override SLAM input resolution (e.g., '2704x2028'). Default uses camera config.")
+def main(input_dir, map_path, camera_type, settings_file, docker_image, num_workers, max_lost_frames, timeout_multiple, no_docker_pull, quality_downscale, slam_resolution):
     input_dir = pathlib.Path(os.path.expanduser(input_dir)).absolute()
     input_video_dirs = [x.parent for x in input_dir.glob('demo*/raw_video.mp4')]
     input_video_dirs += [x.parent for x in input_dir.glob('map*/raw_video.mp4')]
@@ -63,7 +64,17 @@ def main(input_dir, map_path, camera_type, settings_file, docker_image, num_work
 
     # Get camera config for determining SLAM input resolution
     config = CAMERA_CONFIGS.get(camera_type, CAMERA_CONFIGS['gopro9'])
-    slam_input_res = config.get('slam_input_resolution')
+
+    # Override slam_input_resolution if provided via parameter
+    if slam_resolution:
+        try:
+            parts = slam_resolution.lower().split('x')
+            slam_input_res = (int(parts[0]), int(parts[1]))
+            print(f"Using custom SLAM resolution: {slam_input_res[0]}x{slam_input_res[1]}")
+        except:
+            raise ValueError(f"Invalid slam_resolution format: {slam_resolution}. Expected format: WIDTHxHEIGHT")
+    else:
+        slam_input_res = config.get('slam_input_resolution')
 
     # Determine SLAM video resolution (after potential quality downscale)
     slam_video_w, slam_video_h = None, None

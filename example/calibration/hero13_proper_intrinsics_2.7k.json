@@ -1,0 +1,31 @@
+{
+  "final_reproj_error": 0.3010542546938107,
+  "cam_imu_reproj_error": 1.1010405952190423,
+  "fps": 60,
+  "image_height": 2028,
+  "image_width": 2704,
+  "intrinsic_type": "FISHEYE",
+  "intrinsics": {
+    "aspect_ratio": 0.9975802805320121,
+    "focal_length": 1009.0134109757312,
+    "principal_pt_x": 1350.9575076465787,
+    "principal_pt_y": 1021.674766469217,
+    "radial_distortion_1": 0.15333148665636703,
+    "radial_distortion_2": -0.17954742253737027,
+    "radial_distortion_3": 0.135492036887218,
+    "radial_distortion_4": -0.03906457275278272,
+    "skew": 0.0
+  },
+  "t_i_c": {
+    "x": 0.001107361762977589,
+    "y": -0.006446449346178668,
+    "z": -0.002040409123069892
+  },
+  "q_i_c": {
+    "w": -0.004027565897993909,
+    "x": -0.002253580697913613,
+    "y": -0.7059831239556187,
+    "z": 0.708213618039671
+  },
+  "nr_calib_images": 29
+}

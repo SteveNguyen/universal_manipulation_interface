@@ -172,42 +172,157 @@ hero13_openicc_dataset/
     └── imu_bias_*.json              # IMU bias estimates
 ```
 
-## Integration with UMI Pipeline
+## Running the Pipeline
 
-### 1. Copy Calibration
+### Resolution Options
+
+The pipeline now supports multiple resolutions for Hero 13. All use ffmpeg pre-downscaling for optimal quality.
+
+#### 720p Pipeline (Default - Recommended)
+
+Best results: 90.6% success rate on test dataset.
 
 ```bash
-cp hero13_720p_intrinsics.json example/calibration/
+uv run python run_slam_pipeline.py data/your_dataset --camera_type hero13
 ```
 
-### 2. Update Pipeline Scripts
+**What happens:**
+- 4K videos → downscaled to 960x720 using ffmpeg lanczos (high quality)
+- SLAM runs at 720p with no internal resize
+- ArUco detection uses `hero13_proper_intrinsics_720p.json`
+- SLAM settings auto-generated for 720p resolution
+- Masks automatically scaled to match resolution
 
-**scripts_slam_pipeline/02_create_map.py:**
-```python
-# Change line 80 from:
-'--setting', '/ORB_SLAM3/Examples/Monocular-Inertial/gopro10_maxlens_fisheye_setting_v1_720.yaml',
+**Why 720p works best:**
+- Avoids ORB-SLAM internal resize (which causes feature descriptor inconsistency)
+- Pre-downscaling with ffmpeg lanczos preserves quality better
+- ORB feature extraction optimized at this resolution
+- No relocalization failures from descriptor mismatches
 
-# To (requires updating Docker image or mounting custom settings):
-'--setting', '/data/hero13_720p_slam_settings.yaml',
+#### 2.7K Pipeline (Alternative)
+
+For testing or comparison with original GoPro 9/10 pipeline:
+
+```bash
+uv run python run_slam_pipeline.py data/your_dataset \
+    --camera_type hero13 \
+    --slam_resolution 2704x2028
 ```
 
-**scripts_slam_pipeline/04_detect_aruco.py:**
-```python
-# Update default intrinsics path to Hero 13
-@click.option('-ci', '--intrinsics_json',
-              default='example/calibration/hero13_720p_intrinsics.json')
+**What happens:**
+- 4K videos → downscaled to 2704x2028 using ffmpeg
+- SLAM runs at 2.7K resolution
+- ArUco detection uses `hero13_proper_intrinsics_2.7k.json`
+- Uses pre-generated `hero13_proper_2.7k_slam_settings.yaml`
+
+**Expected results:**
+- May achieve 70-80% success rate
+- Higher resolution but more demanding on ORB-SLAM
+- Useful for comparison or specific use cases
+
+#### Custom Resolution
+
+For experimentation:
+
+```bash
+uv run python run_slam_pipeline.py data/your_dataset \
+    --camera_type hero13 \
+    --slam_resolution 1920x1080
 ```
 
-### 3. SLAM Mask Resolution
+**Requirements for custom resolutions:**
+1. Generate intrinsics file at target resolution using `scripts/generate_slam_settings.py`
+2. Create calibration JSON using intrinsics scaling
+3. Place in `example/calibration/` directory
 
-Update mask creation in `02_create_map.py` line 62:
-```python
-# Change from:
-slam_mask = np.zeros((2028, 2704), dtype=np.uint8)
+### Pipeline Steps
 
-# To:
-slam_mask = np.zeros((720, 960), dtype=np.uint8)
+The pipeline automatically runs all steps in sequence:
+
+1. **00_process_videos** - Organize raw videos into demo structure
+2. **01_extract_gopro_imu** - Extract IMU data from GoPro GPMF metadata
+3. **02_create_map** - Create ORB-SLAM3 map from mapping video
+   - Applies quality downscaling if resolution specified
+   - Auto-generates SLAM settings for target resolution
+   - Two-pass mapping for better coverage
+4. **03_batch_slam** - Localize all demo videos against map
+   - Parallel processing of demos
+   - Quality downscaling per video
+5. **04_detect_aruco** - Detect ArUco markers for gripper tracking
+   - Uses resolution-matched intrinsics
+6. **05_run_calibrations** - Compute gripper-camera calibration
+7. **06_generate_dataset_plan** - Generate training dataset plan
+
+### Progress Reporting
+
+The pipeline now includes comprehensive progress reporting:
+
+**Mapping Results:**
 ```
+==========================================================
+MAPPING RESULTS
+==========================================================
+Pass 2 (final): 1847/1875 frames tracked (98.5%)
+Pass 1: 1702/1875 frames tracked (90.8%)
+Map size: 45.2 MB
+==========================================================
+```
+
+**Batch SLAM Results:**
+```
+==========================================================
+BATCH SLAM RESULTS
+==========================================================
+Demos processed: 48/53 (90.6%)
+
+Tracking quality:
+  Excellent (>=90%): 45/48 (93.8%)
+  Good (80-90%):     2/48 (4.2%)
+  Medium (50-80%):   1/48 (2.1%)
+  Poor (<50%):       0/48 (0.0%)
+
+Average tracking quality: 95.2%
+==========================================================
+```
+
+**Final Summary:**
+```
+==========================================================
+PIPELINE SUMMARY
+==========================================================
+Dataset: redcube4k
+Total demos: 53
+Demos with SLAM tracking: 48/53 (90.6%)
+Demos with ArUco detection: 48/53 (90.6%)
+
+✓ Dataset plan generated: dataset_plan.pkl
+  Ready for training!
+==========================================================
+```
+
+### Visualizing Results
+
+Inspect SLAM results with Rerun visualization:
+
+```bash
+# Visualize mapping
+python visualize_slam_trajectory.py data/your_dataset/demos/mapping \
+    --calibration example/calibration/hero13_proper_intrinsics_720p.json
+
+# Visualize individual demo
+python visualize_slam_trajectory.py data/your_dataset/demos/demo_XXX \
+    --calibration example/calibration/hero13_proper_intrinsics_720p.json \
+    --show-video
+```
+
+**Visualization features:**
+- 3D trajectory with camera poses
+- Synchronized video playback
+- IMU data plots (accelerometer/gyroscope)
+- Frame-by-frame navigation
+- Lost frame identification
+
+**Note:** Use the calibration file matching your pipeline resolution (720p or 2.7k).
 
 ## Troubleshooting
 

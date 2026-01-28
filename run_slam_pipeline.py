@@ -128,13 +128,25 @@ def print_final_summary(session):
 @click.option('-c', '--calibration_dir', type=str, default=None)
 @click.option('-ct', '--camera_type', type=click.Choice(['gopro9', 'hero13']),
               default='gopro9', help='Camera type (gopro9 for Hero 9/10/11, hero13 for Hero 13)')
-def main(session_dir, calibration_dir, camera_type):
+@click.option('-sr', '--slam_resolution', type=str, default=None,
+              help='Override SLAM input resolution (e.g., "2704x2028" or "960x720"). Default uses camera config.')
+def main(session_dir, calibration_dir, camera_type, slam_resolution):
     script_dir = pathlib.Path(__file__).parent.joinpath('scripts_slam_pipeline')
     if calibration_dir is None:
         calibration_dir = pathlib.Path(__file__).parent.joinpath('example', 'calibration')
     else:
         calibration_dir = pathlib.Path(calibration_dir)
     assert calibration_dir.is_dir()
+
+    # Parse slam_resolution if provided
+    target_w, target_h = None, None
+    if slam_resolution:
+        try:
+            parts = slam_resolution.lower().split('x')
+            target_w, target_h = int(parts[0]), int(parts[1])
+            print(f"Using custom SLAM resolution: {target_w}x{target_h}")
+        except:
+            raise ValueError(f"Invalid slam_resolution format: {slam_resolution}. Expected format: WIDTHxHEIGHT (e.g., '2704x2028')")
 
     for session in session_dir:
         session = pathlib.Path(os.path.expanduser(session)).absolute()
@@ -175,6 +187,8 @@ def main(session_dir, calibration_dir, camera_type):
                 '--map_path', str(map_path),
                 '--camera_type', camera_type
             ]
+            if slam_resolution:
+                cmd.extend(['--slam_resolution', slam_resolution])
             result = subprocess.run(cmd)
             assert result.returncode == 0
             assert map_path.is_file()
@@ -189,6 +203,8 @@ def main(session_dir, calibration_dir, camera_type):
             '--map_path', str(map_path),
             '--camera_type', camera_type
         ]
+        if slam_resolution:
+            cmd.extend(['--slam_resolution', slam_resolution])
         result = subprocess.run(cmd)
         assert result.returncode == 0
         print_batch_slam_summary(demo_dir)
@@ -197,8 +213,21 @@ def main(session_dir, calibration_dir, camera_type):
         script_path = script_dir.joinpath("04_detect_aruco.py")
         assert script_path.is_file()
         if camera_type == 'hero13':
-            # Use 4K intrinsics for ArUco detection on native 4K videos
-            camera_intrinsics = calibration_dir.joinpath('hero13_proper_intrinsics_4k.json')
+            # Use intrinsics matching the downscaled video resolution for ArUco detection
+            # Determine actual target resolution (from parameter or camera config)
+            actual_w, actual_h = target_w, target_h
+            if actual_w is None:
+                from umi.common.camera_config import CAMERA_CONFIGS
+                config = CAMERA_CONFIGS['hero13']
+                actual_w, actual_h = config['slam_input_resolution']
+
+            if actual_w == 2704 and actual_h == 2028:
+                camera_intrinsics = calibration_dir.joinpath('hero13_proper_intrinsics_2.7k.json')
+            elif actual_w == 960 and actual_h == 720:
+                camera_intrinsics = calibration_dir.joinpath('hero13_proper_intrinsics_720p.json')
+            else:
+                # Fallback to 4K for native or other resolutions
+                camera_intrinsics = calibration_dir.joinpath('hero13_proper_intrinsics_4k.json')
         else:
             camera_intrinsics = calibration_dir.joinpath('gopro_intrinsics_2_7k.json')
         aruco_config = calibration_dir.joinpath('aruco_config.yaml')
