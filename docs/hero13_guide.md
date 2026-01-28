@@ -35,15 +35,15 @@ If you need to recalibrate for your specific Hero 13 unit:
 
 ### Basic Usage
 
-For Hero 13 data, use the dedicated pipeline script:
+For Hero 13 data, use the main pipeline script with `--camera_type hero13`:
 
 ```bash
 # Using uv run (recommended - no need to activate venv)
-uv run python run_slam_pipeline_hero13.py /path/to/your/session_directory
+uv run python run_slam_pipeline.py /path/to/your/session_directory --camera_type hero13
 
 # Or with activated virtual environment
 source .venv/bin/activate
-python run_slam_pipeline_hero13.py /path/to/your/session_directory
+python run_slam_pipeline.py /path/to/your/session_directory --camera_type hero13
 ```
 
 ### Pipeline Steps
@@ -214,18 +214,20 @@ session_directory/
 
 | File | Purpose |
 |------|---------|
-| `run_slam_pipeline_hero13.py` | Main pipeline script for Hero 13 |
+| `run_slam_pipeline.py` | Main pipeline script (use `--camera_type hero13`) |
 | `hero13_720p_slam_settings_gopro9_tbc.yaml` | SLAM configuration |
 | `hero13_proper_intrinsics_2.7k.json` | Camera intrinsics for ArUco |
 | `visualize_dataset_episode.py` | Data visualization tool |
+| `visualize_slam_trajectory.py` | SLAM trajectory visualization with IMU |
 | `docs/tcp_coordinate_system.md` | TCP offset documentation |
 | `docs/mapping_video_analysis.md` | Mapping video purpose |
+| `docs/HERO13_CALIBRATION_GUIDE.md` | Complete calibration guide |
 
 ## Differences from GoPro 9/10/11
 
 | Aspect | GoPro 9/10/11 | Hero 13 |
 |--------|---------------|---------|
-| Pipeline script | `run_slam_pipeline.py` | `run_slam_pipeline_hero13.py` |
+| Pipeline command | `run_slam_pipeline.py` | `run_slam_pipeline.py --camera_type hero13` |
 | SLAM settings | Built into Docker | `hero13_720p_slam_settings_gopro9_tbc.yaml` |
 | Intrinsics | `gopro_intrinsics_2_7k.json` | `hero13_proper_intrinsics_2.7k.json` |
 | Image type | Circular fisheye (black borders) | Full rectangular (no black borders) |

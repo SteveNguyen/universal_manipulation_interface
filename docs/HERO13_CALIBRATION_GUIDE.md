@@ -385,10 +385,23 @@ uv run python scripts/generate_slam_settings.py \
     --output example/calibration/hero13_720p_slam_settings.yaml
 ```
 
-### Test SLAM
+### Test SLAM (Single Video)
 ```bash
 uv run python scripts_slam_pipeline/test_slam_single_video.py \
     your_video.MP4 --camera_type hero13
+```
+
+### Run Full Pipeline
+```bash
+uv run python run_slam_pipeline.py /path/to/session --camera_type hero13
+```
+
+### Generate Training Dataset
+```bash
+uv run python scripts_slam_pipeline/07_generate_replay_buffer.py \
+    -o /path/to/session/dataset.zarr.zip \
+    --camera_type hero13 \
+    /path/to/session
 ```
 
 ---
