@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 import cv2
 import rerun as rr
+import rerun.blueprint as rrb
 from scipy.spatial.transform import Rotation
 
 
@@ -117,27 +118,77 @@ def main(slam_dir, show_video, video_skip, calibration, show_imu_frame, app_id):
     # Initialize rerun
     rr.init(app_id, spawn=True)
 
+    # Give viewer time to connect before logging data
+    import time
+    time.sleep(0.5)
+
     # Log IMU data if available
+    # Note: We need to get video FPS first to align IMU with frame timeline
+    video_fps = 60.0  # Default, will be updated from video
+    if show_video and video_path.exists():
+        temp_cap = cv2.VideoCapture(str(video_path))
+        if temp_cap.isOpened():
+            video_fps = temp_cap.get(cv2.CAP_PROP_FPS)
+            temp_cap.release()
+
     if imu_data:
-        print("\nLogging IMU data...")
+        n_accel = len(imu_data['accel'])
+        n_gyro = len(imu_data['gyro'])
+        print(f"\nLogging IMU data ({n_accel} accel, {n_gyro} gyro samples)...")
+        print(f"  Using video FPS: {video_fps:.2f} for frame timeline alignment")
+        print("  (View in Rerun: right-click entity -> 'Add to new Time Series panel')")
 
-        # Log accelerometer data
-        for sample in imu_data['accel']:
+        # Configure IMU entities as line series (static configuration)
+        rr.log("imu/accelerometer/x", rr.SeriesLines(colors=[255, 0, 0], names="accel_x"), static=True)
+        rr.log("imu/accelerometer/y", rr.SeriesLines(colors=[0, 255, 0], names="accel_y"), static=True)
+        rr.log("imu/accelerometer/z", rr.SeriesLines(colors=[0, 0, 255], names="accel_z"), static=True)
+        rr.log("imu/gyroscope/x", rr.SeriesLines(colors=[255, 128, 0], names="gyro_x"), static=True)
+        rr.log("imu/gyroscope/y", rr.SeriesLines(colors=[128, 255, 0], names="gyro_y"), static=True)
+        rr.log("imu/gyroscope/z", rr.SeriesLines(colors=[0, 128, 255], names="gyro_z"), static=True)
+
+        # Log accelerometer data (pass single float, not list)
+        # Only use timestamp timeline (in seconds) for consistency
+        for i, sample in enumerate(imu_data['accel']):
             timestamp = sample['timestamp']
             value = sample['value']
-            rr.set_time_seconds(timeline="timestamp", seconds=timestamp)
-            rr.log("imu/accelerometer/x", rr.Scalars(value[0]))
-            rr.log("imu/accelerometer/y", rr.Scalars(value[1]))
-            rr.log("imu/accelerometer/z", rr.Scalars(value[2]))
+            rr.set_time("time", timestamp=timestamp)
+            rr.log("imu/accelerometer/x", rr.Scalars(float(value[0])))
+            rr.log("imu/accelerometer/y", rr.Scalars(float(value[1])))
+            rr.log("imu/accelerometer/z", rr.Scalars(float(value[2])))
+            if i % 1000 == 0:
+                print(f"    Accel: {i}/{n_accel}", end='\r')
+        print(f"    Accel: {n_accel}/{n_accel} done")
 
-        # Log gyroscope data
-        for sample in imu_data['gyro']:
+        # Log gyroscope data (pass single float, not list)
+        for i, sample in enumerate(imu_data['gyro']):
             timestamp = sample['timestamp']
             value = sample['value']
-            rr.set_time_seconds(timeline="timestamp", seconds=timestamp)
-            rr.log("imu/gyroscope/x", rr.Scalars(value[0]))
-            rr.log("imu/gyroscope/y", rr.Scalars(value[1]))
-            rr.log("imu/gyroscope/z", rr.Scalars(value[2]))
+            rr.set_time("time", timestamp=timestamp)
+            rr.log("imu/gyroscope/x", rr.Scalars(float(value[0])))
+            rr.log("imu/gyroscope/y", rr.Scalars(float(value[1])))
+            rr.log("imu/gyroscope/z", rr.Scalars(float(value[2])))
+            if i % 1000 == 0:
+                print(f"    Gyro: {i}/{n_gyro}", end='\r')
+        print(f"    Gyro: {n_gyro}/{n_gyro} done")
+
+        # Send blueprint to configure time series with cursor-relative time range
+        # This makes the plots follow the timeline cursor like in rerun 0.26+
+        # Note: Due to numpy 2.0 incompatibility in rerun 0.23.x, time_ranges may not work
+        print("  Configuring time series views...")
+        try:
+            blueprint = rrb.Blueprint(
+                rrb.Vertical(
+                    rrb.Spatial3DView(name="3D View", origin="/world"),
+                    rrb.Horizontal(
+                        rrb.TimeSeriesView(name="Accelerometer", origin="/imu/accelerometer"),
+                        rrb.TimeSeriesView(name="Gyroscope", origin="/imu/gyroscope"),
+                    ),
+                ),
+            )
+            rr.send_blueprint(blueprint)
+            print("  Blueprint sent (note: cursor-relative time range not supported in rerun 0.23.x with numpy 1.x)")
+        except Exception as e:
+            print(f"  Warning: Could not send blueprint: {e}")
 
     # Read trajectory
     print(f"\nLoading trajectory from {traj_csv}...")
@@ -276,9 +327,8 @@ def main(slam_dir, show_video, video_skip, calibration, show_imu_frame, app_id):
         if frame_i % video_skip != 0:
             continue
 
-        # Set timeline based on actual frame index
-        rr.set_time_sequence(timeline="frame", sequence=frame_idx)
-        rr.set_time_seconds(timeline="timestamp", seconds=row['timestamp'])
+        # Set timeline in seconds (consistent with IMU data)
+        rr.set_time("time", timestamp=row['timestamp'])
 
         # Check if this frame has a valid pose
         if frame_idx in pose_map:
@@ -316,8 +366,8 @@ def main(slam_dir, show_video, video_skip, calibration, show_imu_frame, app_id):
             rr.log(
                 "world/camera",
                 rr.Transform3D(
-                    translation=pos_cam,
-                    rotation=rr.Quaternion(xyzw=quat_world_to_cam),
+                    translation=pos_cam.tolist(),
+                    quaternion=quat_world_to_cam.tolist(),  # Use quaternion param directly (avoids numpy 2.0 bug in rerun 0.23.x)
                 )
             )
 
