@@ -88,7 +88,8 @@ def main(session_dir, calibration_dir, camera_type):
         script_path = script_dir.joinpath("04_detect_aruco.py")
         assert script_path.is_file()
         if camera_type == 'hero13':
-            camera_intrinsics = calibration_dir.joinpath('hero13_proper_intrinsics_2.7k.json')
+            # Use 4K intrinsics for ArUco detection on native 4K videos
+            camera_intrinsics = calibration_dir.joinpath('hero13_proper_intrinsics_4k.json')
         else:
             camera_intrinsics = calibration_dir.joinpath('gopro_intrinsics_2_7k.json')
         aruco_config = calibration_dir.joinpath('aruco_config.yaml')

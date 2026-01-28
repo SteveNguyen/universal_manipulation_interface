@@ -24,7 +24,7 @@ import subprocess
 CAMERA_CONFIGS = {
     'hero13': {
         'native_resolution': (4000, 3000),      # 4K native (8:6 aspect)
-        'slam_input_resolution': (960, 720),    # Downscale 4K to 720p for SLAM (no internal resize needed)
+        'slam_input_resolution': (960, 720),    # Downscale 4K to 720p for SLAM (no internal resize - best results)
         'slam_resolution': (960, 720),          # ORB-SLAM3 internal processing
         'reference_intrinsics': 'hero13_proper_intrinsics_2.7k.json',
         'reference_intrinsics_resolution': (2704, 2028),

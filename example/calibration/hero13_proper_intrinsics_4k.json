@@ -1,0 +1,16 @@
+{
+  "image_width": 4000,
+  "image_height": 3000,
+  "intrinsic_type": "FISHEYE",
+  "intrinsics": {
+    "focal_length": 1547.3172174708334,
+    "aspect_ratio": 0.9982593082139707,
+    "principal_pt_x": 1995.8333333333335,
+    "principal_pt_y": 1498.3333333333335,
+    "radial_distortion_1": 0.129510592647997,
+    "radial_distortion_2": -0.170831265647953,
+    "radial_distortion_3": 0.132222177650829,
+    "radial_distortion_4": -0.038604440710045,
+    "skew": 0.0
+  }
+}

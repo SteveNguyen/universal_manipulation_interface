@@ -1,0 +1,80 @@
+%YAML:1.0
+
+#--------------------------------------------------------------------------------------------
+# Hero 13 Camera Parameters at 720p (960×720) - Matching GoPro 9 Pipeline
+#--------------------------------------------------------------------------------------------
+File.version: "1.0"
+Camera.type: "KannalaBrandt8"
+
+# Camera calibration scaled from 2.7K to 720p
+Camera1.fx: 371.356132193
+Camera1.fy: 370.709715624
+Camera1.cx: 479.0
+Camera1.cy: 359.6
+
+Camera1.k1: 0.129510592647997
+Camera1.k2: -0.170831265647953
+Camera1.k3: 0.132222177650829
+Camera1.k4: -0.038604440710045
+
+# Camera resolution
+Camera.width: 960
+Camera.height: 720
+
+# Camera frames per second
+Camera.fps: 60
+
+# Color order of the images (0: BGR, 1: RGB)
+Camera.RGB: 1
+
+# Transformation from camera to imu (body frame)
+# Using GoPro 9's T_b_c for testing
+IMU.T_b_c1: !!opencv-matrix
+    rows: 4
+    cols: 4
+    dt: f
+    data: [0.00156717, -0.99997878, 0.00632289, -0.01321271,
+           -0.99996531, -0.00161881, -0.00817069, -0.00330095,
+           0.00818075, -0.00630987, -0.99994663, -0.05175258,
+           0.0, 0.0, 0.0, 1.0]
+
+# IMU noise
+IMU.NoiseGyro: 0.0015
+IMU.NoiseAcc: 0.017
+IMU.GyroWalk: 5.0e-5
+IMU.AccWalk: 0.0055
+IMU.Frequency: 200.0
+
+#--------------------------------------------------------------------------------------------
+# ORB Parameters - Matching GoPro 9 720p settings
+#--------------------------------------------------------------------------------------------
+
+# ORB Extractor: Number of features per image
+ORBextractor.nFeatures: 1250
+
+# ORB Extractor: Scale factor between levels in the scale pyramid
+ORBextractor.scaleFactor: 1.2
+
+# ORB Extractor: Number of levels in the scale pyramid
+ORBextractor.nLevels: 8
+
+# ORB Extractor: Fast threshold
+ORBextractor.iniThFAST: 20
+ORBextractor.minThFAST: 7
+
+System.thFarPoints: 20.0
+
+#--------------------------------------------------------------------------------------------
+# Viewer Parameters
+#--------------------------------------------------------------------------------------------
+Viewer.KeyFrameSize: 0.05
+Viewer.KeyFrameLineWidth: 1.0
+Viewer.GraphLineWidth: 0.9
+Viewer.PointSize: 2.0
+Viewer.CameraSize: 0.08
+Viewer.CameraLineWidth: 3.0
+Viewer.ViewpointX: 0.0
+Viewer.ViewpointY: -0.7
+Viewer.ViewpointZ: -3.5
+Viewer.ViewpointF: 500.0
+Viewer.imageViewScale: 1.0
