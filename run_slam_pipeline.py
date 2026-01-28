@@ -58,39 +58,29 @@ def main(session_dir, calibration_dir, camera_type):
         assert mapping_dir.is_dir()
         map_path = mapping_dir.joinpath('map_atlas.osa')
 
-        if camera_type == 'hero13':
-            script_path = script_dir.joinpath("02_create_map_hero13.py")
-            slam_settings = pathlib.Path(__file__).parent.joinpath('hero13_720p_slam_settings_gopro9_tbc.yaml')
-        else:
-            script_path = script_dir.joinpath("02_create_map.py")
-            slam_settings = None
+        script_path = script_dir.joinpath("02_create_map.py")
         assert script_path.is_file()
 
         if not map_path.is_file():
             cmd = [
                 'python', str(script_path),
                 '--input_dir', str(mapping_dir),
-                '--map_path', str(map_path)
+                '--map_path', str(map_path),
+                '--camera_type', camera_type
             ]
-            if slam_settings is not None:
-                cmd.extend(['--settings_file', str(slam_settings)])
             result = subprocess.run(cmd)
             assert result.returncode == 0
             assert map_path.is_file()
 
         print("############# 03_batch_slam ###########")
-        if camera_type == 'hero13':
-            script_path = script_dir.joinpath("03_batch_slam_hero13.py")
-        else:
-            script_path = script_dir.joinpath("03_batch_slam.py")
+        script_path = script_dir.joinpath("03_batch_slam.py")
         assert script_path.is_file()
         cmd = [
             'python', str(script_path),
             '--input_dir', str(demo_dir),
-            '--map_path', str(map_path)
+            '--map_path', str(map_path),
+            '--camera_type', camera_type
         ]
-        if slam_settings is not None:
-            cmd.extend(['--settings_file', str(slam_settings)])
         result = subprocess.run(cmd)
         assert result.returncode == 0
 
