@@ -372,8 +372,16 @@ python visualize_slam_trajectory.py data/your_dataset/demos/demo_XXX \
    - Script to check reprojection errors
    - Automated SLAM test on sample video
 
+## Related Documentation
+
+- [ORB_SLAM3 Fork Analysis](docs/orbslam3_fork_analysis.md) - Detailed analysis of modifications to ORB_SLAM3 for GoPro support
+- [SLAM Data Format](docs/slam_data_format.md) - IMU and video format requirements (for custom camera/IMU integration)
+- [Hero 13 Guide](docs/hero13_guide.md) - Quick start guide for Hero 13 users
+- [TCP Coordinate System](docs/tcp_coordinate_system.md) - Gripper tool center point definition
+
 ## Credits
 
 - OpenImuCameraCalibrator: https://github.com/urbste/OpenImuCameraCalibrator
-- ORB-SLAM3: https://github.com/UZ-SLAMLab/ORB_SLAM3
+- ORB-SLAM3 (UMI Fork): https://github.com/cheng-chi/ORB_SLAM3
+- ORB-SLAM3 (Original): https://github.com/UZ-SLAMLab/ORB_SLAM3
 - UMI: https://umi-gripper.github.io

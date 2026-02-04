@@ -379,3 +379,5 @@ For detailed technical information:
 - **Resolution Scaling**: See `umi/common/camera_config.py` for intrinsics scaling implementation
 - **SLAM Settings Generation**: Use `scripts/generate_slam_settings.py` to create settings for custom resolutions
 - **Coordinate Systems**: See `docs/tcp_coordinate_system.md` for gripper TCP definition
+- **ORB_SLAM3 Fork**: See `docs/orbslam3_fork_analysis.md` for details on the modified SLAM system
+- **SLAM Data Format**: See `docs/slam_data_format.md` for IMU/video format requirements (useful for custom cameras)
