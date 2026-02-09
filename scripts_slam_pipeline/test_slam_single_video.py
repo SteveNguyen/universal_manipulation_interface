@@ -133,22 +133,40 @@ def extract_imu_python(video_path, output_path):
 
 def extract_imu_data(video_path, output_dir, docker_image="chicheng/openicc:latest",
                      no_docker_pull=False, camera_type='gopro9'):
-    """Extract IMU data from GoPro video.
+    """Extract IMU data from GoPro video or locate existing IMU file.
 
     For Hero 13, tries Python extraction first (py-gpmf-parser) as it handles
     some videos that cause Docker extraction to fail with "negative length" errors.
     Falls back to Docker extraction if Python method fails.
+
+    For RPi+BNO080, IMU data is recorded separately (not embedded in video),
+    so we look for an existing imu_data.json file alongside the video.
 
     Args:
         video_path: Path to video with GPMF metadata (original, not re-encoded)
         output_dir: Directory to save imu_data.json
         docker_image: Docker image for IMU extraction
         no_docker_pull: Skip pulling Docker image
-        camera_type: Camera type ('hero13' or 'gopro9')
+        camera_type: Camera type ('hero13', 'gopro9', or 'rpi_bno080')
     """
     video_path = pathlib.Path(video_path).absolute()
     output_dir = pathlib.Path(output_dir)
     imu_dest = output_dir / 'imu_data.json'
+
+    # For RPi+BNO080, IMU data is recorded separately - look for existing file
+    if camera_type == 'rpi_bno080':
+        # Look for imu_data.json next to the video file
+        imu_source = video_path.parent / 'imu_data.json'
+        if imu_source.exists():
+            print(f"  Found existing IMU data: {imu_source}")
+            if imu_source != imu_dest:
+                import shutil
+                shutil.copy(str(imu_source), str(imu_dest))
+            return True
+        else:
+            print(f"  Error: No IMU data found at {imu_source}")
+            print("  For RPi+BNO080, imu_data.json must be recorded alongside the video")
+            return False
 
     # For Hero 13, try Python extraction first (more reliable)
     if camera_type == 'hero13':
@@ -313,7 +331,7 @@ def analyze_trajectory(csv_path):
 
 @click.command()
 @click.argument('video_path', type=click.Path(exists=True))
-@click.option('-ct', '--camera_type', type=click.Choice(['gopro9', 'hero13']), default='gopro9',
+@click.option('-ct', '--camera_type', type=click.Choice(['gopro9', 'hero13', 'rpi_bno080']), default='gopro9',
               help='Camera type (affects mask and settings)')
 @click.option('-o', '--output_dir', default=None, help='Output directory (default: temp dir)')
 @click.option('-m', '--load_map', default=None, help='Load existing map for localization')
@@ -355,6 +373,9 @@ def main(video_path, camera_type, output_dir, load_map, settings_file,
         # Hero 13 at 4K needs downscaling to 2.7K
         needs_downscale = True
         print(f"  Video is 4K, will downscale to {expected_res[0]}x{expected_res[1]}")
+    elif camera_type == 'rpi_bno080':
+        # RPi camera at native resolution, no downscaling needed
+        pass
     elif (width, height) != expected_res:
         print(f"  Warning: Resolution {width}x{height} differs from expected {expected_res[0]}x{expected_res[1]}")
 
@@ -404,6 +425,19 @@ def main(video_path, camera_type, output_dir, load_map, settings_file,
     if settings_file is None:
         if camera_type == 'hero13':
             settings_file = pathlib.Path(ROOT_DIR) / 'hero13_720p_slam_settings_gopro9_tbc.yaml'
+        elif camera_type == 'rpi_bno080':
+            # Check for calibrated settings first, then template
+            calibration_dir = pathlib.Path(ROOT_DIR) / 'example' / 'calibration'
+            calibrated_settings = calibration_dir / 'rpi_bno080_calibrated_slam_settings.yaml'
+            template_settings = pathlib.Path(ROOT_DIR) / 'rpi_bno080_slam_settings.yaml'
+            if calibrated_settings.is_file():
+                settings_file = calibrated_settings
+            elif template_settings.is_file():
+                settings_file = template_settings
+                print("  WARNING: Using uncalibrated template settings!")
+            else:
+                print("  Error: No RPi+BNO080 settings file found")
+                return
         else:
             # Use default in Docker
             settings_file = None
@@ -421,12 +455,15 @@ def main(video_path, camera_type, output_dir, load_map, settings_file,
         print("Creating SLAM mask...")
         # Get resolution from the video that will be used for SLAM
         video_w, video_h, _, _ = get_video_info(raw_video_path)
+        slam_mask = np.zeros((video_h, video_w), dtype=np.uint8)
         if camera_type == 'hero13':
-            slam_mask = np.zeros((video_h, video_w), dtype=np.uint8)
             slam_mask = draw_predefined_mask_hero13(
                 slam_mask, color=255, mirror=True, finger=True)
+        elif camera_type == 'rpi_bno080':
+            # RPi camera may not have gripper/mirror masks - use empty mask
+            # Users can add custom mask if needed
+            pass
         else:
-            slam_mask = np.zeros((video_h, video_w), dtype=np.uint8)
             slam_mask = draw_predefined_mask(
                 slam_mask, color=255, mirror=True, gripper=False, finger=True)
         mask_path = output_dir / 'slam_mask.png'

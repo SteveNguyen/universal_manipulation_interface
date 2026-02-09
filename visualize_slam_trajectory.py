@@ -247,7 +247,8 @@ def main(slam_dir, show_video, video_skip, calibration, show_imu_frame, app_id):
     # SLAM world frame = IMU body frame at initialization (arbitrary orientation)
     # Don't force any specific axis interpretation
     # Using default right-handed coordinate system
-    rr.log("world", rr.ViewCoordinates.RIGHT_HAND_Y_UP, static=True)
+    # Note: Not setting ViewCoordinates here to allow free orbit rotation in the viewer.
+    # Setting e.g. RIGHT_HAND_Y_UP locks the orbit camera to keep Y pointing up.
 
     # Add coordinate axes at origin for reference (world/IMU frame at initialization)
     axis_length = 0.5

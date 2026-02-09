@@ -33,8 +33,8 @@ from umi.common.camera_config import (
 @click.command()
 @click.option('-i', '--input_dir', required=True, help='Directory for mapping video')
 @click.option('-m', '--map_path', default=None, help='ORB_SLAM3 *.osa map atlas file')
-@click.option('-ct', '--camera_type', type=click.Choice(['gopro9', 'hero13']), default='gopro9',
-              help='Camera type (gopro9 for Hero 9/10/11, hero13 for Hero 13)')
+@click.option('-ct', '--camera_type', type=click.Choice(['gopro9', 'hero13', 'rpi_bno080']), default='gopro9',
+              help='Camera type (gopro9 for Hero 9/10/11, hero13 for Hero 13, rpi_bno080 for RPi camera with BNO080 IMU)')
 @click.option('-s', '--settings_file', default=None, help='SLAM settings YAML (auto-selected if not provided)')
 @click.option('-d', '--docker_image', default="chicheng/orb_slam3:latest")
 @click.option('-np', '--no_docker_pull', is_flag=True, default=False, help="pull docker image from docker hub")
@@ -100,6 +100,23 @@ def main(input_dir, map_path, camera_type, settings_file, docker_image, no_docke
                 input_resolution=(slam_video_w, slam_video_h),
                 output_path=settings_path
             )
+        elif camera_type == 'rpi_bno080':
+            # Use RPi+BNO080 settings - look for calibrated settings first, then fallback to template
+            calibration_dir = pathlib.Path(ROOT_DIR) / 'example' / 'calibration'
+            calibrated_settings = calibration_dir / 'rpi_bno080_calibrated_slam_settings.yaml'
+            template_settings = pathlib.Path(ROOT_DIR) / 'rpi_bno080_slam_settings.yaml'
+            if calibrated_settings.is_file():
+                settings_path = calibrated_settings
+                print(f"Using calibrated RPi+BNO080 settings: {settings_path}")
+            elif template_settings.is_file():
+                settings_path = template_settings
+                print(f"WARNING: Using UNCALIBRATED template settings: {settings_path}")
+                print("         Run calibration and update rpi_bno080_slam_settings.yaml for best results!")
+            else:
+                print("Error: No RPi+BNO080 settings file found")
+                print(f"  Expected calibrated: {calibrated_settings}")
+                print(f"  Or template: {template_settings}")
+                exit(1)
         else:
             # Use built-in settings for GoPro 9/10/11 (inside docker)
             settings_path = None
@@ -148,6 +165,10 @@ def main(input_dir, map_path, camera_type, settings_file, docker_image, no_docke
         if camera_type == 'hero13':
             slam_mask = draw_predefined_mask_hero13(
                 slam_mask, color=255, mirror=True, finger=True)
+        elif camera_type == 'rpi_bno080':
+            # RPi camera may not have gripper/mirror masks - use empty mask or custom
+            # Users can add custom mask function in cv_util.py if needed
+            pass  # Empty mask - no areas masked
         else:
             slam_mask = draw_predefined_mask(
                 slam_mask, color=255, mirror=True, gripper=False, finger=True)

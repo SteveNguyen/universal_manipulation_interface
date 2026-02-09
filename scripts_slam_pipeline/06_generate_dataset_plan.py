@@ -89,8 +89,8 @@ def get_x_projection(tx_tag_this, tx_tag_other):
 @click.option('-nz', '--nominal_z', type=float, default=0.072, help="nominal Z value for gripper finger tag")
 @click.option('-ml', '--min_episode_length', type=int, default=24)
 @click.option('--ignore_cameras', type=str, default=None, help="comma separated string of camera serials to ignore")
-@click.option('-ct', '--camera_type', type=click.Choice(['gopro9', 'hero13']),
-              default='gopro9', help='Camera type (gopro9 for Hero 9/10/11, hero13 for Hero 13)')
+@click.option('-ct', '--camera_type', type=click.Choice(['gopro9', 'hero13', 'rpi_bno080']),
+              default='gopro9', help='Camera type (gopro9 for Hero 9/10/11, hero13 for Hero 13, rpi_bno080 for RPi camera with BNO080 IMU)')
 def main(input, output, tcp_offset, tx_slam_tag,
          nominal_z, min_episode_length, ignore_cameras, camera_type):
     # %% stage 0
@@ -108,6 +108,7 @@ def main(input, output, tcp_offset, tx_slam_tag,
     CAM_TO_MOUNT_OFFSETS = {
         'gopro9': 0.01465,  # GoPro Hero 9/10/11
         'hero13': 0.01465,  # Hero 13 (same mount design - measure if needed)
+        'rpi_bno080': 0.01,  # RPi camera - placeholder, measure for actual hardware
     }
     cam_to_mount_offset = CAM_TO_MOUNT_OFFSETS.get(camera_type, 0.01465)
     cam_to_tip_offset = cam_to_mount_offset + tcp_offset

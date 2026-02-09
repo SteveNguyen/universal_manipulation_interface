@@ -69,6 +69,36 @@ CAMERA_CONFIGS = {
         'mask_type': 'gopro',
         'mask_reference_resolution': (1920, 1080),
     },
+    # Raspberry Pi camera with BNO080 IMU
+    'rpi_bno080': {
+        'native_resolution': (1296, 972),           # RPi camera native
+        'slam_input_resolution': (1296, 972),       # No downscale needed (already small)
+        'slam_resolution': (1296, 972),             # Process at native resolution
+        'reference_intrinsics': 'rpi_camera_intrinsics.json',
+        'reference_intrinsics_resolution': (1296, 972),
+        # Placeholder intrinsics - must be calibrated for actual hardware
+        'verified_intrinsics': {
+            'fx': 450.0,        # Placeholder - calibrate with ChArUco board
+            'fy': 450.0,        # Placeholder - calibrate with ChArUco board
+            'cx': 648.0,        # Approx center (1296/2)
+            'cy': 486.0,        # Approx center (972/2)
+            'k1': 0.0,          # Fisheye k1 - from calibration
+            'k2': 0.0,          # Fisheye k2 - from calibration
+            'k3': 0.0,          # Fisheye k3 - from calibration
+            'k4': 0.0,          # Fisheye k4 - from calibration
+        },
+        # BNO080 IMU parameters (from datasheet)
+        'imu_params': {
+            'NoiseGyro': 0.003,     # rad/s/√Hz (BNO080 is relatively low noise)
+            'NoiseAcc': 0.03,       # m/s²/√Hz
+            'GyroWalk': 1.0e-4,     # rad/s²/√Hz
+            'AccWalk': 0.003,       # m/s³/√Hz
+            'Frequency': 200.0,     # Hz (confirmed 200 Hz sample rate)
+        },
+        'mask_type': 'rpi',                         # May need custom mask
+        'mask_reference_resolution': (1296, 972),
+        'fps': 49.62,                               # RPi camera frame rate
+    },
 }
 
 
