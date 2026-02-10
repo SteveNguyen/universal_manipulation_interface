@@ -1,0 +1,90 @@
+%YAML:1.0
+
+#--------------------------------------------------------------------------------------------
+# RPi Camera + BNO080 IMU SLAM Settings
+# Calibrated using OpenICC on 2025-02-09 (calibration_2)
+# Camera reproj: 0.41px, IMU-Camera reproj: 1.52px, Time offset: -102ms
+#--------------------------------------------------------------------------------------------
+File.version: "1.0"
+Camera.type: "KannalaBrandt8"
+
+# Camera resolution for SLAM processing (scaled from 1296x972)
+Camera.width: 960
+Camera.height: 720
+
+# Frame rate (must be integer for ORB-SLAM3)
+Camera.fps: 50
+
+# Color order (1=RGB, 0=BGR)
+Camera.RGB: 1
+
+# Camera 1 intrinsics (scaled to 720p from OpenICC calibration_2)
+# Source: 1296x972, Reprojection error: 0.41 pixels
+Camera1.fx: 389.1622786167703
+Camera1.fy: 388.2187392897153
+Camera1.cx: 471.0029452809264
+Camera1.cy: 366.1739679131413
+
+# Fisheye distortion coefficients k1-k4 (scale-invariant)
+Camera1.k1: -0.04610072366852059
+Camera1.k2: 0.04080717807483622
+Camera1.k3: 0.0180439275075698
+Camera1.k4: -0.03604457306098717
+
+#--------------------------------------------------------------------------------------------
+# IMU Parameters - BNO080
+#--------------------------------------------------------------------------------------------
+
+IMU.Frequency: 200.0
+
+# 3x noise: best compromise for raw BMI160 gyro (has ~0.5-3 deg/s uncorrected bias)
+# Higher noise reduces weight of biased IMU in VIBA scale estimation
+# Tracking stays at 99% because gyro axis correction is accurate
+IMU.NoiseGyro: 0.009
+IMU.NoiseAcc: 0.09
+IMU.GyroWalk: 3.0e-4
+IMU.AccWalk: 0.009
+
+#--------------------------------------------------------------------------------------------
+# IMU-Camera Extrinsic Calibration (physical measurement)
+#--------------------------------------------------------------------------------------------
+
+# Physical rotation (camera-to-body convention)
+# T_b_c1 = camera-to-body: R maps cam axes to body axes, t = cam pos in body frame
+# x_imu = -x_cam, y_imu = -z_cam, z_imu = -y_cam
+# t = -R * [0, 0.022, -0.0189] = [0, -0.0189, 0.022]
+IMU.T_b_c1: !!opencv-matrix
+    rows: 4
+    cols: 4
+    dt: f
+    data: [-1.0, 0.0, 0.0, 0.0,
+           0.0, 0.0, -1.0, -0.0189,
+           0.0, -1.0, 0.0, 0.022,
+           0.0, 0.0, 0.0, 1.0]
+
+#--------------------------------------------------------------------------------------------
+# ORB Parameters
+#--------------------------------------------------------------------------------------------
+
+ORBextractor.nFeatures: 1500
+ORBextractor.scaleFactor: 1.2
+ORBextractor.nLevels: 8
+ORBextractor.iniThFAST: 20
+ORBextractor.minThFAST: 7
+
+System.thFarPoints: 20.0
+
+#--------------------------------------------------------------------------------------------
+# Viewer Parameters
+#--------------------------------------------------------------------------------------------
+Viewer.KeyFrameSize: 0.05
+Viewer.KeyFrameLineWidth: 1.0
+Viewer.GraphLineWidth: 0.9
+Viewer.PointSize: 2.0
+Viewer.CameraSize: 0.08
+Viewer.CameraLineWidth: 3.0
+Viewer.ViewpointX: 0.0
+Viewer.ViewpointY: -0.7
+Viewer.ViewpointZ: -1.8
+Viewer.ViewpointF: 500.0
+Viewer.imageViewScale: 1.0
