@@ -37,14 +37,15 @@ Camera1.k4: -0.03604457306098717
 
 IMU.Frequency: 200.0
 
-# BMI088 datasheet noise values (spectral density), inflated 5x
-# Raw BMI088 has ~2 deg/s uncorrected gyro bias, needs noise inflation
-# Gyro noise density: 0.014 deg/s/sqrt(Hz) = 0.000244 rad/s/sqrt(Hz) -> 5x = 0.00122
-# Accel noise density: 175 ug/sqrt(Hz) = 0.00172 m/s^2/sqrt(Hz) -> 5x = 0.0086
-IMU.NoiseGyro: 0.00122
-IMU.NoiseAcc: 0.0086
-IMU.GyroWalk: 5.0e-5
-IMU.AccWalk: 0.001
+# BMI088 noise parameters — empirically tuned for reliable VIBA initialization
+# Raw BMI088 has ~2 deg/s uncorrected gyro bias. Higher noise tells ORB-SLAM3
+# to trust IMU less during initialization, allowing VIBA to converge despite bias.
+# These values match the BNO080 3x noise level which gives consistent 95%+ tracking.
+# BMI088 datasheet 1x: gyro=0.000244 rad/s/√Hz, accel=0.00172 m/s²/√Hz
+IMU.NoiseGyro: 0.009
+IMU.NoiseAcc: 0.09
+IMU.GyroWalk: 3.0e-4
+IMU.AccWalk: 0.009
 
 #--------------------------------------------------------------------------------------------
 # IMU-Camera Extrinsic Calibration (physical measurement)

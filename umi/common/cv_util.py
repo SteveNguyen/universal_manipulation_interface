@@ -567,6 +567,70 @@ def draw_predefined_mask_hero13(img, color=(0,0,0), mirror=True, gripper=False, 
 
     return img
 
+# =========== Grabette mask ====================
+# Grabette RPi camera with fisheye lens, device body visible at bottom-right
+# Reference resolution for Grabette mask polygons (1296x972)
+GRABETTE_MASK_REFERENCE_RESOLUTION = (972, 1296)  # (height, width)
+GRABETTE_MASK_REFERENCE_WIDTH = 1296
+GRABETTE_MASK_REFERENCE_HEIGHT = 972
+
+
+def get_device_body_polygon_grabette():
+    """Get Grabette device body polygon.
+
+    Covers the white cylindrical housing and arm visible at bottom-right.
+    Returns pixel coordinates at reference resolution (1296x972).
+    Caller should scale to actual video resolution.
+    """
+    ref_w = GRABETTE_MASK_REFERENCE_WIDTH
+    ref_h = GRABETTE_MASK_REFERENCE_HEIGHT
+
+    device_body_pts = np.array([
+        [120, ref_h],   # bottom, start of device edge
+        [280, 750],     # left side of curved arm
+        [1030, 610],    # top of device body
+        [1160, 780],    # top-right corner area
+        [ref_w, 780],   # right edge
+        [ref_w, ref_h], # bottom-right corner
+    ], dtype=np.int32)
+
+    return [device_body_pts]
+
+
+def draw_predefined_mask_grabette(img, color=(0,0,0), device=True, use_aa=False):
+    """Draw predefined mask for Grabette RPi camera.
+
+    Polygons are defined at reference resolution (1296x972) and automatically
+    scaled to match the actual image resolution.
+
+    Args:
+        img: Image to draw mask on (any resolution - will be scaled)
+        color: Color to fill masked regions
+        device: Whether to mask device body region
+        use_aa: Whether to use anti-aliasing
+    """
+    img_h, img_w = img.shape[:2]
+    reference_h, reference_w = GRABETTE_MASK_REFERENCE_RESOLUTION
+
+    scale_x = img_w / reference_w
+    scale_y = img_h / reference_h
+
+    all_polygons = []
+    if device:
+        all_polygons.extend(get_device_body_polygon_grabette())
+
+    flag = cv2.LINE_AA if use_aa else cv2.LINE_8
+
+    for pts in all_polygons:
+        scaled_pts = pts.copy().astype(np.float64)
+        scaled_pts[:, 0] *= scale_x
+        scaled_pts[:, 1] *= scale_y
+        scaled_pts = np.round(scaled_pts).astype(np.int32)
+        cv2.fillPoly(img, [scaled_pts], color=color, lineType=flag)
+
+    return img
+
+
 def get_gripper_with_finger_mask(img, height=0.37, top_width=0.25, bottom_width=1.4, color=(0,0,0)):
     # image size
     img_h = img.shape[0]

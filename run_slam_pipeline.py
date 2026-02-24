@@ -126,8 +126,8 @@ def print_final_summary(session):
 @click.command()
 @click.argument('session_dir', nargs=-1)
 @click.option('-c', '--calibration_dir', type=str, default=None)
-@click.option('-ct', '--camera_type', type=click.Choice(['gopro9', 'hero13', 'rpi_bno080']),
-              default='gopro9', help='Camera type (gopro9 for Hero 9/10/11, hero13 for Hero 13, rpi_bno080 for RPi camera with BNO080 IMU)')
+@click.option('-ct', '--camera_type', type=click.Choice(['gopro9', 'hero13', 'rpi_bno080', 'grabette']),
+              default='gopro9', help='Camera type (gopro9 for Hero 9/10/11, hero13 for Hero 13, rpi_bno080/grabette for RPi camera)')
 @click.option('-sr', '--slam_resolution', type=str, default=None,
               help='Override SLAM input resolution (e.g., "2704x2028" or "960x720"). Default uses camera config.')
 def main(session_dir, calibration_dir, camera_type, slam_resolution):
@@ -228,7 +228,7 @@ def main(session_dir, calibration_dir, camera_type, slam_resolution):
             else:
                 # Fallback to 4K for native or other resolutions
                 camera_intrinsics = calibration_dir.joinpath('hero13_proper_intrinsics_4k.json')
-        elif camera_type == 'rpi_bno080':
+        elif camera_type in ('rpi_bno080', 'grabette'):
             # RPi camera intrinsics (at native 1296x972 resolution)
             camera_intrinsics = calibration_dir.joinpath('rpi_camera_intrinsics.json')
         else:

@@ -34,7 +34,7 @@ import json
 import numpy as np
 import cv2
 import av
-from umi.common.cv_util import draw_predefined_mask, draw_predefined_mask_hero13
+from umi.common.cv_util import draw_predefined_mask, draw_predefined_mask_hero13, draw_predefined_mask_grabette
 from umi.common.camera_config import CAMERA_CONFIGS
 
 
@@ -153,14 +153,13 @@ def extract_imu_data(video_path, output_dir, docker_image="chicheng/openicc:late
     output_dir = pathlib.Path(output_dir)
     imu_dest = output_dir / 'imu_data.json'
 
-    # For RPi+BNO080, IMU data is recorded separately - look for existing file
-    if camera_type == 'rpi_bno080':
+    # For RPi cameras, IMU data is recorded separately - look for existing file
+    if camera_type in ('rpi_bno080', 'grabette'):
         # Look for imu_data.json next to the video file
         imu_source = video_path.parent / 'imu_data.json'
         if imu_source.exists():
             print(f"  Found existing IMU data: {imu_source}")
             if imu_source != imu_dest:
-                import shutil
                 shutil.copy(str(imu_source), str(imu_dest))
             return True
         else:
@@ -331,7 +330,7 @@ def analyze_trajectory(csv_path):
 
 @click.command()
 @click.argument('video_path', type=click.Path(exists=True))
-@click.option('-ct', '--camera_type', type=click.Choice(['gopro9', 'hero13', 'rpi_bno080']), default='gopro9',
+@click.option('-ct', '--camera_type', type=click.Choice(['gopro9', 'hero13', 'rpi_bno080', 'grabette']), default='gopro9',
               help='Camera type (affects mask and settings)')
 @click.option('-o', '--output_dir', default=None, help='Output directory (default: temp dir)')
 @click.option('-m', '--load_map', default=None, help='Load existing map for localization')
@@ -373,7 +372,7 @@ def main(video_path, camera_type, output_dir, load_map, settings_file,
         # Hero 13 at 4K needs downscaling to 2.7K
         needs_downscale = True
         print(f"  Video is 4K, will downscale to {expected_res[0]}x{expected_res[1]}")
-    elif camera_type == 'rpi_bno080':
+    elif camera_type in ('rpi_bno080', 'grabette'):
         # RPi camera at native resolution, no downscaling needed
         pass
     elif (width, height) != expected_res:
@@ -421,22 +420,49 @@ def main(video_path, camera_type, output_dir, load_map, settings_file,
                 shutil.rmtree(output_dir)
             return
 
+    # Resample IMU to uniform 200Hz for ORB-SLAM3
+    # Required: non-uniform timestamps break the noise model (see docs/orbslam3_imu_uniform_spacing.md)
+    if camera_type in ('rpi_bno080', 'grabette'):
+        resampled_path = output_dir / 'imu_data_resampled.json'
+        if not resampled_path.exists():
+            print("Resampling IMU to uniform 200Hz...")
+            from scripts.resample_imu import deduplicate_samples, resample_stream
+            with open(imu_path) as f:
+                imu_raw = json.load(f)
+            streams = imu_raw['1']['streams']
+            for stream_name in ['ACCL', 'GYRO']:
+                if stream_name not in streams:
+                    continue
+                samples = streams[stream_name]['samples']
+                n_raw = len(samples)
+                samples = deduplicate_samples(samples)
+                resampled = resample_stream(samples, 200)
+                streams[stream_name]['samples'] = resampled
+                print(f"  {stream_name}: {n_raw} -> {len(samples)} deduped -> {len(resampled)} resampled")
+            # Remove ANGL stream if present
+            if 'ANGL' in streams:
+                del streams['ANGL']
+            with open(resampled_path, 'w') as f:
+                json.dump({"1": {"streams": streams}}, f)
+        # Use resampled data for SLAM
+        imu_path = resampled_path
+
     # Select settings file
     if settings_file is None:
         if camera_type == 'hero13':
             settings_file = pathlib.Path(ROOT_DIR) / 'hero13_720p_slam_settings_gopro9_tbc.yaml'
-        elif camera_type == 'rpi_bno080':
+        elif camera_type in ('rpi_bno080', 'grabette'):
             # Check for calibrated settings first, then template
             calibration_dir = pathlib.Path(ROOT_DIR) / 'example' / 'calibration'
-            calibrated_settings = calibration_dir / 'rpi_bno080_calibrated_slam_settings.yaml'
-            template_settings = pathlib.Path(ROOT_DIR) / 'rpi_bno080_slam_settings.yaml'
+            calibrated_settings = calibration_dir / 'rpi_bmi088_calibrated_slam_settings.yaml'
+            template_settings = pathlib.Path(ROOT_DIR) / 'rpi_bmi088_slam_settings.yaml'
             if calibrated_settings.is_file():
                 settings_file = calibrated_settings
             elif template_settings.is_file():
                 settings_file = template_settings
                 print("  WARNING: Using uncalibrated template settings!")
             else:
-                print("  Error: No RPi+BNO080 settings file found")
+                print("  Error: No RPi SLAM settings file found")
                 return
         else:
             # Use default in Docker
@@ -459,10 +485,9 @@ def main(video_path, camera_type, output_dir, load_map, settings_file,
         if camera_type == 'hero13':
             slam_mask = draw_predefined_mask_hero13(
                 slam_mask, color=255, mirror=True, finger=True)
-        elif camera_type == 'rpi_bno080':
-            # RPi camera may not have gripper/mirror masks - use empty mask
-            # Users can add custom mask if needed
-            pass
+        elif camera_type in ('rpi_bno080', 'grabette'):
+            slam_mask = draw_predefined_mask_grabette(
+                slam_mask, color=255, device=True)
         else:
             slam_mask = draw_predefined_mask(
                 slam_mask, color=255, mirror=True, gripper=False, finger=True)
@@ -483,7 +508,7 @@ def main(video_path, camera_type, output_dir, load_map, settings_file,
     mount_target = pathlib.Path('/data')
     csv_path = mount_target / 'camera_trajectory.csv'
     video_mount = mount_target / 'raw_video.mp4'
-    json_mount = mount_target / 'imu_data.json'
+    json_mount = mount_target / imu_path.name
     mask_mount = mount_target / 'slam_mask.png'
 
     cmd = [

@@ -25,6 +25,7 @@ from umi.common.cv_util import (
     get_image_transform,
     draw_predefined_mask,
     draw_predefined_mask_hero13,
+    draw_predefined_mask_grabette,
     inpaint_tag,
     get_mirror_crop_slices
 )
@@ -43,8 +44,8 @@ register_codecs()
 @click.option('-nm', '--no_mirror', is_flag=True, default=False, help="Disable mirror observation by masking them out")
 @click.option('-ms', '--mirror_swap', is_flag=True, default=False)
 @click.option('-n', '--num_workers', type=int, default=None)
-@click.option('-ct', '--camera_type', type=click.Choice(['gopro9', 'hero13']), default='gopro9',
-              help="Camera type for mask geometry (gopro9 or hero13)")
+@click.option('-ct', '--camera_type', type=click.Choice(['gopro9', 'hero13', 'grabette']), default='gopro9',
+              help="Camera type for mask geometry (gopro9, hero13, or grabette)")
 def main(input, output, out_res, out_fov, compression_level,
          no_mirror, mirror_swap, num_workers, camera_type):
     if os.path.isfile(output):

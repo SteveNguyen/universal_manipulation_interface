@@ -15,11 +15,12 @@ import click
 import subprocess
 import multiprocessing
 import concurrent.futures
+import json
 from tqdm import tqdm
 import cv2
 import av
 import numpy as np
-from umi.common.cv_util import draw_predefined_mask, draw_predefined_mask_hero13
+from umi.common.cv_util import draw_predefined_mask, draw_predefined_mask_hero13, draw_predefined_mask_grabette
 from umi.common.camera_config import (
     CAMERA_CONFIGS,
     generate_slam_settings_for_resolution,
@@ -46,8 +47,8 @@ def runner(cmd, cwd, stdout_path, stderr_path, timeout, **kwargs):
 @click.command()
 @click.option('-i', '--input_dir', required=True, help='Directory for demos folder')
 @click.option('-m', '--map_path', default=None, help='ORB_SLAM3 *.osa map atlas file')
-@click.option('-ct', '--camera_type', type=click.Choice(['gopro9', 'hero13', 'rpi_bno080']), default='gopro9',
-              help='Camera type (gopro9 for Hero 9/10/11, hero13 for Hero 13, rpi_bno080 for RPi camera with BNO080 IMU)')
+@click.option('-ct', '--camera_type', type=click.Choice(['gopro9', 'hero13', 'rpi_bno080', 'grabette']), default='gopro9',
+              help='Camera type (gopro9 for Hero 9/10/11, hero13 for Hero 13, rpi_bno080/grabette for RPi camera)')
 @click.option('-s', '--settings_file', default=None, help='SLAM settings YAML (auto-selected if not provided)')
 @click.option('-d', '--docker_image', default="chicheng/orb_slam3:latest")
 @click.option('-n', '--num_workers', type=int, default=None)
@@ -126,6 +127,17 @@ def main(input_dir, map_path, camera_type, settings_file, docker_image, num_work
                 print(f"  Expected calibrated: {calibrated_settings}")
                 print(f"  Or template: {template_settings}")
                 exit(1)
+        elif camera_type == 'grabette':
+            # Use grabette (BMI088) settings
+            ROOT_DIR = os.path.dirname(os.path.dirname(__file__))
+            template_settings = pathlib.Path(ROOT_DIR) / 'rpi_bmi088_slam_settings.yaml'
+            if template_settings.is_file():
+                settings_path = template_settings
+                print(f"Using grabette (BMI088) settings: {settings_path}")
+            else:
+                print("Error: No grabette settings file found")
+                print(f"  Expected: {template_settings}")
+                exit(1)
         else:
             # Use built-in settings for GoPro 9/10/11 (inside docker)
             settings_path = None
@@ -175,10 +187,32 @@ def main(input_dir, map_path, camera_type, settings_file, docker_image, num_work
                     print(f"camera_trajectory.csv already exists, skipping {video_dir.name}")
                     continue
                 
+                # Resample IMU to uniform 200Hz for RPi/grabette
+                imu_filename = 'imu_data.json'
+                if camera_type in ('rpi_bno080', 'grabette'):
+                    resampled_path = video_dir.joinpath('imu_data_resampled.json')
+                    if not resampled_path.is_file():
+                        from scripts.resample_imu import deduplicate_samples, resample_stream
+                        with open(video_dir.joinpath('imu_data.json')) as f:
+                            imu_raw = json.load(f)
+                        streams = imu_raw['1']['streams']
+                        for stream_name in ['ACCL', 'GYRO']:
+                            if stream_name not in streams:
+                                continue
+                            samples = streams[stream_name]['samples']
+                            samples = deduplicate_samples(samples)
+                            resampled = resample_stream(samples, 200)
+                            streams[stream_name]['samples'] = resampled
+                        if 'ANGL' in streams:
+                            del streams['ANGL']
+                        with open(resampled_path, 'w') as f:
+                            json.dump({"1": {"streams": streams}}, f)
+                    imu_filename = 'imu_data_resampled.json'
+
                 # softlink won't work in bind volume
                 mount_target = pathlib.Path('/data')
                 csv_path = mount_target.joinpath('camera_trajectory.csv')
-                json_path = mount_target.joinpath('imu_data.json')
+                json_path = mount_target.joinpath(imu_filename)
                 mask_path = mount_target.joinpath('slam_mask.png')
                 mask_write_path = video_dir.joinpath('slam_mask.png')
 
@@ -220,10 +254,9 @@ def main(input_dir, map_path, camera_type, settings_file, docker_image, num_work
                 if camera_type == 'hero13':
                     slam_mask = draw_predefined_mask_hero13(
                         slam_mask, color=255, mirror=True, finger=True)
-                elif camera_type == 'rpi_bno080':
-                    # RPi camera may not have gripper/mirror masks - use empty mask or custom
-                    # Users can add custom mask function in cv_util.py if needed
-                    pass  # Empty mask - no areas masked
+                elif camera_type in ('rpi_bno080', 'grabette'):
+                    slam_mask = draw_predefined_mask_grabette(
+                        slam_mask, color=255, device=True)
                 else:
                     slam_mask = draw_predefined_mask(
                         slam_mask, color=255, mirror=True, gripper=False, finger=True)

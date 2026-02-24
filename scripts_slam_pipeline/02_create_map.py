@@ -16,11 +16,12 @@ import click
 import subprocess
 import multiprocessing
 import concurrent.futures
+import json
 from tqdm import tqdm
 import numpy as np
 import cv2
 import av
-from umi.common.cv_util import draw_predefined_mask, draw_predefined_mask_hero13
+from umi.common.cv_util import draw_predefined_mask, draw_predefined_mask_hero13, draw_predefined_mask_grabette
 from umi.common.camera_config import (
     CAMERA_CONFIGS,
     generate_slam_settings_for_resolution,
@@ -33,19 +34,44 @@ from umi.common.camera_config import (
 @click.command()
 @click.option('-i', '--input_dir', required=True, help='Directory for mapping video')
 @click.option('-m', '--map_path', default=None, help='ORB_SLAM3 *.osa map atlas file')
-@click.option('-ct', '--camera_type', type=click.Choice(['gopro9', 'hero13', 'rpi_bno080']), default='gopro9',
-              help='Camera type (gopro9 for Hero 9/10/11, hero13 for Hero 13, rpi_bno080 for RPi camera with BNO080 IMU)')
+@click.option('-ct', '--camera_type', type=click.Choice(['gopro9', 'hero13', 'rpi_bno080', 'grabette']), default='gopro9',
+              help='Camera type (gopro9 for Hero 9/10/11, hero13 for Hero 13, rpi_bno080/grabette for RPi camera)')
 @click.option('-s', '--settings_file', default=None, help='SLAM settings YAML (auto-selected if not provided)')
 @click.option('-d', '--docker_image', default="chicheng/orb_slam3:latest")
 @click.option('-np', '--no_docker_pull', is_flag=True, default=False, help="pull docker image from docker hub")
 @click.option('-nm', '--no_mask', is_flag=True, default=False, help="Whether to mask out gripper and mirrors. Set if map is created with bare GoPro no on gripper.")
-@click.option('--two_pass', is_flag=True, default=False, help="Run two-pass mapping: first pass creates map, second pass re-processes to capture initially missed frames")
+@click.option('--retries', type=int, default=0, help="Retry SLAM up to N times, keeping the best result (by tracking rate)")
 @click.option('--quality_downscale', is_flag=True, default=False, help="Pre-downscale video to SLAM input resolution using ffmpeg (recommended for 4K input)")
 @click.option('--slam_resolution', type=str, default=None, help="Override SLAM input resolution (e.g., '2704x2028'). Default uses camera config.")
-def main(input_dir, map_path, camera_type, settings_file, docker_image, no_docker_pull, no_mask, two_pass, quality_downscale, slam_resolution):
+def main(input_dir, map_path, camera_type, settings_file, docker_image, no_docker_pull, no_mask, retries, quality_downscale, slam_resolution):
     video_dir = pathlib.Path(os.path.expanduser(input_dir)).absolute()
     for fn in ['raw_video.mp4', 'imu_data.json']:
         assert video_dir.joinpath(fn).is_file()
+
+    # Resample IMU to uniform 200Hz for RPi/grabette (ORB-SLAM3 requires uniform spacing)
+    imu_filename = 'imu_data.json'
+    if camera_type in ('rpi_bno080', 'grabette'):
+        resampled_path = video_dir.joinpath('imu_data_resampled.json')
+        if not resampled_path.is_file():
+            print("Resampling IMU to uniform 200Hz...")
+            from scripts.resample_imu import deduplicate_samples, resample_stream
+            with open(video_dir.joinpath('imu_data.json')) as f:
+                imu_raw = json.load(f)
+            streams = imu_raw['1']['streams']
+            for stream_name in ['ACCL', 'GYRO']:
+                if stream_name not in streams:
+                    continue
+                samples = streams[stream_name]['samples']
+                samples = deduplicate_samples(samples)
+                resampled = resample_stream(samples, 200)
+                streams[stream_name]['samples'] = resampled
+                print(f"  {stream_name}: {len(samples)} deduped -> {len(resampled)} resampled")
+            if 'ANGL' in streams:
+                del streams['ANGL']
+            with open(resampled_path, 'w') as f:
+                json.dump({"1": {"streams": streams}}, f)
+        imu_filename = 'imu_data_resampled.json'
+        print(f"Using resampled IMU: {imu_filename}")
 
     # Get video resolution
     video_w, video_h = get_video_resolution(video_dir.joinpath('raw_video.mp4'))
@@ -117,6 +143,16 @@ def main(input_dir, map_path, camera_type, settings_file, docker_image, no_docke
                 print(f"  Expected calibrated: {calibrated_settings}")
                 print(f"  Or template: {template_settings}")
                 exit(1)
+        elif camera_type == 'grabette':
+            # Use grabette (BMI088) settings
+            template_settings = pathlib.Path(ROOT_DIR) / 'rpi_bmi088_slam_settings.yaml'
+            if template_settings.is_file():
+                settings_path = template_settings
+                print(f"Using grabette (BMI088) settings: {settings_path}")
+            else:
+                print("Error: No grabette settings file found")
+                print(f"  Expected: {template_settings}")
+                exit(1)
         else:
             # Use built-in settings for GoPro 9/10/11 (inside docker)
             settings_path = None
@@ -152,7 +188,7 @@ def main(input_dir, map_path, camera_type, settings_file, docker_image, no_docke
     csv_path = mount_target.joinpath('mapping_camera_trajectory.csv')
     # Use downscaled video if available
     video_path = mount_target.joinpath(slam_video_path.name)
-    json_path = mount_target.joinpath('imu_data.json')
+    json_path = mount_target.joinpath(imu_filename)
     mask_path = mount_target.joinpath('slam_mask.png')
     if not no_mask:
         mask_write_path = video_dir.joinpath('slam_mask.png')
@@ -165,10 +201,9 @@ def main(input_dir, map_path, camera_type, settings_file, docker_image, no_docke
         if camera_type == 'hero13':
             slam_mask = draw_predefined_mask_hero13(
                 slam_mask, color=255, mirror=True, finger=True)
-        elif camera_type == 'rpi_bno080':
-            # RPi camera may not have gripper/mirror masks - use empty mask or custom
-            # Users can add custom mask function in cv_util.py if needed
-            pass  # Empty mask - no areas masked
+        elif camera_type in ('rpi_bno080', 'grabette'):
+            slam_mask = draw_predefined_mask_grabette(
+                slam_mask, color=255, device=True)
         else:
             slam_mask = draw_predefined_mask(
                 slam_mask, color=255, mirror=True, gripper=False, finger=True)
@@ -211,29 +246,77 @@ def main(input_dir, map_path, camera_type, settings_file, docker_image, no_docke
             '--mask_img', str(mask_path)
         ])
 
-    stdout_path = video_dir.joinpath('slam_stdout.txt')
-    stderr_path = video_dir.joinpath('slam_stderr.txt')
+    import pandas as pd
 
-    print("Running SLAM mapping (pass 1)...")
-    result = subprocess.run(
-        cmd,
-        cwd=str(video_dir),
-        stdout=stdout_path.open('w'),
-        stderr=stderr_path.open('w')
-    )
-    print(f"Pass 1 result: {result}")
+    def copy_file(src, dst):
+        """Copy file handling root-owned Docker files."""
+        if src.is_file():
+            data = src.read_bytes()
+            if dst.is_file():
+                os.remove(str(dst))
+            dst.write_bytes(data)
 
-    # Two-pass mapping: re-process video with existing map to capture initially missed frames
-    # This helps when SLAM takes time to initialize and misses the first N frames
-    if two_pass and map_path.is_file():
-        print("\nRunning two-pass mapping (pass 2) to capture missed initial frames...")
+    total_attempts = 1 + retries
+    best_pct = -1
+    best_attempt = 0
 
-        # Second pass: load existing map and re-process same video
+    for attempt in range(1, total_attempts + 1):
+        if total_attempts > 1:
+            print(f"\n--- Attempt {attempt}/{total_attempts} ---")
+        else:
+            print("Running SLAM mapping...")
+
+        stdout_path = video_dir.joinpath('slam_stdout.txt')
+        stderr_path = video_dir.joinpath('slam_stderr.txt')
+
+        result = subprocess.run(
+            cmd,
+            cwd=str(video_dir),
+            stdout=stdout_path.open('w'),
+            stderr=stderr_path.open('w')
+        )
+
+        traj_path = video_dir.joinpath('mapping_camera_trajectory.csv')
+        if result.returncode != 0 or not traj_path.is_file():
+            print(f"  SLAM failed (return code {result.returncode})")
+            continue
+
+        df = pd.read_csv(traj_path)
+        tracked = len(df) - df['is_lost'].sum()
+        pct = 100 * tracked / len(df) if len(df) > 0 else 0
+        print(f"  Tracking: {tracked}/{len(df)} ({pct:.1f}%)")
+
+        if pct > best_pct:
+            best_pct = pct
+            best_attempt = attempt
+            # Save best result
+            if total_attempts > 1:
+                for src, dst_name in [
+                    (traj_path, 'mapping_camera_trajectory_best.csv'),
+                    (map_path, 'map_atlas_best.osa'),
+                    (stdout_path, 'slam_stdout_best.txt'),
+                ]:
+                    copy_file(src, video_dir / dst_name)
+
+        if pct >= 90:
+            if total_attempts > 1:
+                print(f"  >= 90% tracking, stopping early")
+            break
+
+    # Restore best result if we did retries and last attempt wasn't the best
+    if total_attempts > 1 and best_pct >= 0 and best_attempt != attempt:
+        copy_file(video_dir / 'mapping_camera_trajectory_best.csv', traj_path)
+        copy_file(video_dir / 'map_atlas_best.osa', map_path)
+
+    if total_attempts > 1:
+        print(f"\nBest result: attempt {best_attempt}/{total_attempts} ({best_pct:.1f}% tracking)")
+
+    # Two-pass: re-localize against the map to recover init frames
+    if best_pct >= 90 and map_path.is_file():
+        print("\nRunning pass 2 (re-localization to recover init frames)...")
         csv_path_pass2 = mount_target.joinpath('mapping_camera_trajectory_pass2.csv')
         cmd_pass2 = [
-            'docker',
-            'run',
-            '--rm',
+            'docker', 'run', '--rm',
             '--volume', str(video_dir) + ':' + '/data',
             '--volume', str(map_mount_source.parent) + ':' + str(map_mount_target.parent),
         ]
@@ -247,8 +330,7 @@ def main(input_dir, map_path, camera_type, settings_file, docker_image, no_docke
             '--input_video', str(video_path),
             '--input_imu_json', str(json_path),
             '--output_trajectory_csv', str(csv_path_pass2),
-            '--load_map', str(map_mount_target),  # Load existing map
-            '--save_map', str(map_mount_target),  # Save updated map
+            '--load_map', str(map_mount_target),
         ])
         if not no_mask:
             cmd_pass2.extend(['--mask_img', str(mask_path)])
@@ -262,19 +344,22 @@ def main(input_dir, map_path, camera_type, settings_file, docker_image, no_docke
             stdout=stdout_path_pass2.open('w'),
             stderr=stderr_path_pass2.open('w')
         )
-        print(f"Pass 2 result: {result_pass2}")
 
-        # Analyze improvement
-        traj_pass1 = video_dir.joinpath('mapping_camera_trajectory.csv')
         traj_pass2 = video_dir.joinpath('mapping_camera_trajectory_pass2.csv')
-        if traj_pass1.is_file() and traj_pass2.is_file():
-            import pandas as pd
-            df1 = pd.read_csv(traj_pass1)
+        if result_pass2.returncode == 0 and traj_pass2.is_file():
             df2 = pd.read_csv(traj_pass2)
-            lost1 = df1['is_lost'].sum()
-            lost2 = df2['is_lost'].sum()
-            print(f"\nPass 1: {len(df1) - lost1}/{len(df1)} frames tracked ({100*(len(df1)-lost1)/len(df1):.1f}%)")
-            print(f"Pass 2: {len(df2) - lost2}/{len(df2)} frames tracked ({100*(len(df2)-lost2)/len(df2):.1f}%)")
+            tracked2 = len(df2) - df2['is_lost'].sum()
+            pct2 = 100 * tracked2 / len(df2) if len(df2) > 0 else 0
+            print(f"  Pass 2: {tracked2}/{len(df2)} ({pct2:.1f}%)")
+
+            if pct2 > best_pct:
+                # Pass 2 is better — use it as the final result
+                copy_file(traj_pass2, video_dir / 'mapping_camera_trajectory.csv')
+                print(f"  Pass 2 improved tracking: {best_pct:.1f}% -> {pct2:.1f}%")
+            else:
+                print(f"  Pass 2 did not improve ({pct2:.1f}% vs {best_pct:.1f}%), keeping pass 1")
+        else:
+            print(f"  Pass 2 failed (return code {result_pass2.returncode}), keeping pass 1")
 
 
 # %%
