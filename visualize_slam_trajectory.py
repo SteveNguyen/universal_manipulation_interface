@@ -83,9 +83,9 @@ def main(slam_dir, show_video, video_skip, calibration, show_imu_frame, app_id):
             raw_imu_data = json.load(f)
 
         # Parse GoPro metadata format
-        # Structure: {frame_num: {streams: {ACCL: {samples: [...]}, GYRO: {samples: [...]}}}}
+        # Structure: {frame_num: {streams: {ACCL: {samples: [...]}, GYRO: {samples: [...]}, ANGL: {samples: [...]}}}}
         # Note: JSON may also contain metadata like "frames/second" at top level
-        imu_samples = {'accel': [], 'gyro': []}
+        imu_samples = {'accel': [], 'gyro': [], 'angle': []}
         for frame_num, frame_data in raw_imu_data.items():
             # Skip non-dictionary entries (like "frames/second": 59.94)
             if not isinstance(frame_data, dict):
@@ -111,9 +111,17 @@ def main(slam_dir, show_video, video_skip, calibration, show_imu_frame, app_id):
                         'value': sample['value']  # [x, y, z]
                     })
 
+            # Extract angular sensor data
+            if 'ANGL' in streams and 'samples' in streams['ANGL']:
+                for sample in streams['ANGL']['samples']:
+                    imu_samples['angle'].append({
+                        'timestamp': sample['cts'] / 1000.0,  # Convert ms to seconds
+                        'value': sample['value']  # [angle1, angle2]
+                    })
+
         if imu_samples['accel'] or imu_samples['gyro']:
             imu_data = imu_samples
-            print(f"  Loaded {len(imu_samples['accel'])} accel samples, {len(imu_samples['gyro'])} gyro samples")
+            print(f"  Loaded {len(imu_samples['accel'])} accel, {len(imu_samples['gyro'])} gyro, {len(imu_samples['angle'])} angle samples")
 
     # Initialize rerun
     rr.init(app_id, spawn=True)
@@ -171,22 +179,44 @@ def main(slam_dir, show_video, video_skip, calibration, show_imu_frame, app_id):
                 print(f"    Gyro: {i}/{n_gyro}", end='\r')
         print(f"    Gyro: {n_gyro}/{n_gyro} done")
 
-        # Send blueprint to configure time series with cursor-relative time range
-        # This makes the plots follow the timeline cursor like in rerun 0.26+
-        # Note: Due to numpy 2.0 incompatibility in rerun 0.23.x, time_ranges may not work
-        print("  Configuring time series views...")
+        # Log angular sensor data if available
+        n_angle = len(imu_data['angle'])
+        if n_angle > 0:
+            rr.log("sensors/angle/sensor_1", rr.SeriesLines(colors=[255, 0, 128], names="angle_1"), static=True)
+            rr.log("sensors/angle/sensor_2", rr.SeriesLines(colors=[0, 200, 200], names="angle_2"), static=True)
+
+            for i, sample in enumerate(imu_data['angle']):
+                timestamp = sample['timestamp']
+                value = sample['value']
+                rr.set_time("time", timestamp=timestamp)
+                rr.log("sensors/angle/sensor_1", rr.Scalars(float(value[0])))
+                rr.log("sensors/angle/sensor_2", rr.Scalars(float(value[1])))
+                if i % 1000 == 0:
+                    print(f"    Angle: {i}/{n_angle}", end='\r')
+            print(f"    Angle: {n_angle}/{n_angle} done")
+
+        # Send blueprint layout
+        print("  Configuring views...")
         try:
+            views = [
+                rrb.Spatial3DView(name="3D View", origin="/world"),
+            ]
+            bottom_views = []
+            if n_angle > 0:
+                bottom_views.append(rrb.TimeSeriesView(name="Angle Sensors", origin="/sensors/angle"))
+            bottom_views.append(rrb.TimeSeriesView(name="Accelerometer", origin="/imu/accelerometer"))
+            bottom_views.append(rrb.TimeSeriesView(name="Gyroscope", origin="/imu/gyroscope"))
+
             blueprint = rrb.Blueprint(
                 rrb.Vertical(
-                    rrb.Spatial3DView(name="3D View", origin="/world"),
                     rrb.Horizontal(
-                        rrb.TimeSeriesView(name="Accelerometer", origin="/imu/accelerometer"),
-                        rrb.TimeSeriesView(name="Gyroscope", origin="/imu/gyroscope"),
+                        rrb.Spatial3DView(name="3D View", origin="/world"),
+                        rrb.Spatial2DView(name="Camera", origin="/camera_feed"),
                     ),
+                    rrb.Horizontal(*bottom_views),
                 ),
             )
             rr.send_blueprint(blueprint)
-            print("  Blueprint sent (note: cursor-relative time range not supported in rerun 0.23.x with numpy 1.x)")
         except Exception as e:
             print(f"  Warning: Could not send blueprint: {e}")
 
@@ -436,6 +466,9 @@ def main(slam_dir, show_video, video_skip, calibration, show_imu_frame, app_id):
                 # Convert BGR to RGB
                 frame_rgb = cv2.cvtColor(frame_resized, cv2.COLOR_BGR2RGB)
 
+                # Log raw camera feed (2D view)
+                rr.log("camera_feed", rr.Image(frame_rgb))
+
                 # Set intrinsics if not set (use simple approximation)
                 if fx is None:
                     fx = w / 2
@@ -482,8 +515,10 @@ def main(slam_dir, show_video, video_skip, calibration, show_imu_frame, app_id):
     print(f"    - Downscaled to {target_width}x{target_height} for performance")
     if imu_data:
         print(f"  IMU data:")
-        print(f"    - imu/accelerometer/{'{x,y,z}'}: acceleration plots")
-        print(f"    - imu/gyroscope/{'{x,y,z}'}: angular velocity plots")
+        print(f"    - imu/accelerometer: acceleration plots")
+        print(f"    - imu/gyroscope: angular velocity plots")
+        if imu_data.get('angle'):
+            print(f"    - sensors/angle: angular sensor plots")
     print(f"\nControls:")
     print(f"  - Use timeline slider to scrub through trajectory")
     print(f"  - Mouse: rotate view, scroll: zoom")

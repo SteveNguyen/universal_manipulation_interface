@@ -312,7 +312,8 @@ def main(input_dir, map_path, camera_type, settings_file, docker_image, no_docke
         print(f"\nBest result: attempt {best_attempt}/{total_attempts} ({best_pct:.1f}% tracking)")
 
     # Two-pass: re-localize against the map to recover init frames
-    if best_pct >= 90 and map_path.is_file():
+    # Even a partial map (>0%) can help — pass 2 may track frames that pass 1 missed
+    if best_pct > 0 and map_path.is_file():
         print("\nRunning pass 2 (re-localization to recover init frames)...")
         csv_path_pass2 = mount_target.joinpath('mapping_camera_trajectory_pass2.csv')
         cmd_pass2 = [
@@ -338,15 +339,25 @@ def main(input_dir, map_path, camera_type, settings_file, docker_image, no_docke
         stdout_path_pass2 = video_dir.joinpath('slam_stdout_pass2.txt')
         stderr_path_pass2 = video_dir.joinpath('slam_stderr_pass2.txt')
 
-        result_pass2 = subprocess.run(
-            cmd_pass2,
-            cwd=str(video_dir),
-            stdout=stdout_path_pass2.open('w'),
-            stderr=stderr_path_pass2.open('w')
-        )
+        # Timeout: pass 1 processes at ~50 FPS, give pass 2 generous 5x margin
+        with av.open(str(slam_video_path)) as container:
+            video_duration = float(container.streams.video[0].duration * container.streams.video[0].time_base)
+        pass2_timeout = max(video_duration * 10, 120)
+
+        try:
+            result_pass2 = subprocess.run(
+                cmd_pass2,
+                cwd=str(video_dir),
+                stdout=stdout_path_pass2.open('w'),
+                stderr=stderr_path_pass2.open('w'),
+                timeout=pass2_timeout
+            )
+        except subprocess.TimeoutExpired:
+            print(f"  Pass 2 timed out after {pass2_timeout:.0f}s, keeping pass 1")
+            result_pass2 = None
 
         traj_pass2 = video_dir.joinpath('mapping_camera_trajectory_pass2.csv')
-        if result_pass2.returncode == 0 and traj_pass2.is_file():
+        if result_pass2 is not None and result_pass2.returncode == 0 and traj_pass2.is_file():
             df2 = pd.read_csv(traj_pass2)
             tracked2 = len(df2) - df2['is_lost'].sum()
             pct2 = 100 * tracked2 / len(df2) if len(df2) > 0 else 0
