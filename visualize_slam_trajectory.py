@@ -27,8 +27,9 @@ from scipy.spatial.transform import Rotation
 @click.option('--video-skip', default=10, help='Show every Nth video frame')
 @click.option('--calibration', type=click.Path(exists=True), default=None, help='Path to calibration JSON for accurate projection')
 @click.option('--show-imu-frame', is_flag=True, help='Show IMU frame axes for debugging')
+@click.option('--align-gravity', is_flag=True, help='Rotate trajectory so gravity aligns with -Z (up = +Z)')
 @click.option('--app-id', default='slam_viz', help='Rerun application ID')
-def main(slam_dir, show_video, video_skip, calibration, show_imu_frame, app_id):
+def main(slam_dir, show_video, video_skip, calibration, show_imu_frame, align_gravity, app_id):
     """Visualize SLAM trajectory from ORB-SLAM3 output."""
 
     slam_dir = pathlib.Path(slam_dir)
@@ -261,6 +262,97 @@ def main(slam_dir, show_video, video_skip, calibration, show_imu_frame, app_id):
     else:
         times = df['frame_idx'].values
 
+    # Gravity alignment: rotate trajectory so that gravity = -Z, up = +Z
+    R_gravity = None
+    if align_gravity and imu_data and len(imu_data['accel']) > 0:
+        print("\nComputing gravity alignment...")
+
+        # Build accelerometer lookup (timestamp → value)
+        accel_t = np.array([s['timestamp'] for s in imu_data['accel']])
+        accel_v = np.array([s['value'] for s in imu_data['accel']])
+
+        # Use low-gyro frames for cleaner estimates
+        gyro_t = np.array([s['timestamp'] for s in imu_data['gyro']])
+        gyro_v = np.array([s['value'] for s in imu_data['gyro']])
+
+        # T_b_c1 rotation: camera-to-body (180° around x for back-to-back mounting)
+        # R_cb = R_bc^T transforms IMU body frame → camera frame
+        R_cb = np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]])
+
+        # Estimate gravity direction in world frame from accel + poses.
+        # The accelerometer measures specific force = -gravity = "up" in IMU body frame.
+        # The SLAM pose quaternion is camera-to-world (R_cw), per Rerun Transform3D convention.
+        # Pipeline: a_body → a_cam (via R_cb) → a_world (via R_cw)
+        g_estimates = []
+        for i in range(len(positions)):
+            t = times[i]
+            q = quaternions_xyzw[i]
+            R_cw = Rotation.from_quat(q)
+
+            # Find closest IMU sample
+            idx = np.argmin(np.abs(accel_t - t))
+            a_body = accel_v[idx]
+
+            # Transform: IMU body → camera → world
+            a_cam = R_cb @ a_body
+            up_world = R_cw.apply(a_cam)
+
+            # Weight by inverse angular velocity (low rotation → cleaner gravity)
+            gyro_idx = np.argmin(np.abs(gyro_t - t))
+            omega = np.linalg.norm(gyro_v[gyro_idx])
+            weight = 1.0 / (1.0 + omega * 10)
+
+            g_estimates.append((up_world, weight))
+
+        ups = np.array([g[0] for g in g_estimates])
+        weights = np.array([g[1] for g in g_estimates])
+
+        # Weighted average — dynamic acceleration cancels, leaving gravity (up)
+        g_mean = np.average(ups, axis=0, weights=weights)
+        g_norm = g_mean / np.linalg.norm(g_mean)
+
+        print(f"  Gravity (up) in world frame: {g_norm}")
+        print(f"  Magnitude of mean: {np.linalg.norm(g_mean):.2f} m/s^2 (expected ~9.81)")
+
+        # Compute rotation from g_norm to +Z
+        target_up = np.array([0, 0, 1])
+        axis = np.cross(g_norm, target_up)
+        axis_len = np.linalg.norm(axis)
+        if axis_len > 1e-6:
+            axis = axis / axis_len
+            angle = np.arccos(np.clip(np.dot(g_norm, target_up), -1, 1))
+            R_gravity = Rotation.from_rotvec(axis * angle)
+            print(f"  Rotation: {np.degrees(angle):.1f} degrees around {axis}")
+        else:
+            R_gravity = Rotation.identity()
+            print(f"  Already aligned with Z")
+
+        # Apply to positions: p_new = R_gravity * p_old
+        positions = R_gravity.apply(positions)
+
+        # Apply to quaternions: R_cw_new = R_gravity * R_cw_old (left-multiply)
+        # This rotates the world frame while keeping camera orientation consistent
+        for i, idx in enumerate(df.index):
+            df_all.at[idx, 'x'] = positions[i, 0]
+            df_all.at[idx, 'y'] = positions[i, 1]
+            df_all.at[idx, 'z'] = positions[i, 2]
+            R_cw_old = Rotation.from_quat(quaternions_xyzw[i])
+            R_cw_new = R_gravity * R_cw_old
+            q_new = R_cw_new.as_quat()
+            df_all.at[idx, 'q_x'] = q_new[0]
+            df_all.at[idx, 'q_y'] = q_new[1]
+            df_all.at[idx, 'q_z'] = q_new[2]
+            df_all.at[idx, 'q_w'] = q_new[3]
+            quaternions_xyzw[i] = q_new
+
+        # Rebuild df from updated df_all
+        if 'is_lost' in df_all.columns:
+            df = df_all[df_all['is_lost'] == False].copy()
+        else:
+            df = df_all
+
+        print(f"  Trajectory aligned: Z = up, gravity = -Z")
+
     print(f"\nTrajectory statistics:")
     print(f"  Valid poses: {len(positions)}")
     print(f"  Position range:")
@@ -273,14 +365,7 @@ def main(slam_dir, show_video, video_skip, calibration, show_imu_frame, app_id):
     total_distance = np.sum(distances)
     print(f"  Total distance: {total_distance:.3f} m")
 
-    # Set up world coordinate frame
-    # SLAM world frame = IMU body frame at initialization (arbitrary orientation)
-    # Don't force any specific axis interpretation
-    # Using default right-handed coordinate system
-    # Note: Not setting ViewCoordinates here to allow free orbit rotation in the viewer.
-    # Setting e.g. RIGHT_HAND_Y_UP locks the orbit camera to keep Y pointing up.
-
-    # Add coordinate axes at origin for reference (world/IMU frame at initialization)
+    # Add coordinate axes at origin for reference
     axis_length = 0.5
     rr.log(
         "world/axes",
@@ -341,9 +426,33 @@ def main(slam_dir, show_video, video_skip, calibration, show_imu_frame, app_id):
             target_height = 720
             print(f"No resolution in calibration, defaulting to {target_width}x{target_height}")
     else:
-        fx, fy, cx, cy = None, None, None, None
-        target_width = 960
-        target_height = 720
+        # Try to load default calibration file
+        default_calib = pathlib.Path(__file__).parent / 'example' / 'calibration' / 'rpi_camera_intrinsics.json'
+        if default_calib.exists():
+            import json
+            with open(default_calib) as f:
+                calib_data = json.load(f)
+            calib_intrinsics = calib_data
+            target_width = calib_data.get('image_width', 1296)
+            target_height = calib_data.get('image_height', 972)
+            aspect_ratio = calib_data['intrinsics'].get('aspect_ratio', 1.0)
+            fy = calib_data['intrinsics']['focal_length']
+            fx = fy / aspect_ratio
+            cx = calib_data['intrinsics']['principal_pt_x']
+            cy = calib_data['intrinsics']['principal_pt_y']
+            # Scale to display resolution
+            display_width, display_height = 960, 720
+            sx = display_width / target_width
+            sy = display_height / target_height
+            fx, fy = fx * sx, fy * sy
+            cx, cy = cx * sx, cy * sy
+            target_width, target_height = display_width, display_height
+            print(f"Auto-loaded calibration from {default_calib}")
+            print(f"  Intrinsics: fx={fx:.1f}, fy={fy:.1f}, cx={cx:.1f}, cy={cy:.1f}")
+        else:
+            fx, fy, cx, cy = None, None, None, None
+            target_width = 960
+            target_height = 720
 
     trajectory_so_far = []
 
@@ -415,8 +524,8 @@ def main(slam_dir, show_video, video_skip, calibration, show_imu_frame, app_id):
             # - X: right (in image plane)
             # - Y: down (in image plane)
             # - Z: forward (optical axis, pointing INTO the scene)
-            # quat_cam_xyzw is world-to-camera, invert to get camera-to-world for drawing axes
-            rot_cam = Rotation.from_quat(quat_cam_xyzw).inv()
+            # quat_cam_xyzw is camera-to-world (R_cw), apply directly to get camera axes in world
+            rot_cam = Rotation.from_quat(quat_cam_xyzw)
             cam_x = rot_cam.apply([cam_axis_length, 0, 0])  # X = right
             cam_y = rot_cam.apply([0, cam_axis_length, 0])  # Y = down
             cam_z = rot_cam.apply([0, 0, cam_axis_length])  # Z = forward (optical axis)
